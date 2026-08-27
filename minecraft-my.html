@@ -1012,8 +1012,14 @@ Controls:
           height: 80,
           smooth: 0.01,
         };
+        var worldType = 'default';
+        var gameMode = 'survival';
+        var structuresEnabled = true;
         var maxHeight = 255;
         var terrainHeight = function(wx, wz) {
+          if (worldType === 'flat') {
+            return 4;
+          }
           var smoothness = generator.smooth;
           var hilliness = generator.height;
           var biomeVariant = worldSeed % 8;
@@ -1078,10 +1084,69 @@ Controls:
           hotbar: [1, 2, 3, 4, 5, 6, 7, 8, 9],
           main: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
           hotbarSlot: 0,
+          hotbarCounts: [1,1,1,1,1,1,1,1,1],
+          mainCounts: new Array(27).fill(0),
           size: 40,
-          holding: 0
+          holding: 0,
+          holdingCount: 0
         };
-      } //Globals
+      };
+      var MAX_STACK = 64;
+      function normalizeInventoryCounts() {
+        if (!inventory.hotbarCounts || inventory.hotbarCounts.length !== 9) inventory.hotbarCounts = new Array(9).fill(1);
+        if (!inventory.mainCounts || inventory.mainCounts.length !== 27) inventory.mainCounts = new Array(27).fill(0);
+        for (var i = 0; i < 9; i++) { if (!inventory.hotbar[i]) inventory.hotbarCounts[i] = 0; else if (!inventory.hotbarCounts[i]) inventory.hotbarCounts[i] = 1; inventory.hotbarCounts[i] = Math.min(MAX_STACK, inventory.hotbarCounts[i]); }
+        for (var j = 0; j < 27; j++) { if (!inventory.main[j]) inventory.mainCounts[j] = 0; else if (!inventory.mainCounts[j]) inventory.mainCounts[j] = 1; inventory.mainCounts[j] = Math.min(MAX_STACK, inventory.mainCounts[j]); }
+      }
+      function addItemToInventory(item, amount) {
+        if (!item || amount <= 0) return amount;
+        normalizeInventoryCounts();
+        var left = amount;
+        for (var i = 0; i < 9 && left > 0; i++) if (inventory.hotbar[i] === item && inventory.hotbarCounts[i] < MAX_STACK) { var n = Math.min(left, MAX_STACK - inventory.hotbarCounts[i]); inventory.hotbarCounts[i] += n; left -= n; }
+        for (var j = 0; j < 27 && left > 0; j++) if (inventory.main[j] === item && inventory.mainCounts[j] < MAX_STACK) { var n2 = Math.min(left, MAX_STACK - inventory.mainCounts[j]); inventory.mainCounts[j] += n2; left -= n2; }
+        for (var k = 0; k < 9 && left > 0; k++) if (!inventory.hotbar[k]) { inventory.hotbar[k] = item; inventory.hotbarCounts[k] = Math.min(left, MAX_STACK); left -= inventory.hotbarCounts[k]; }
+        for (var m = 0; m < 27 && left > 0; m++) if (!inventory.main[m]) { inventory.main[m] = item; inventory.mainCounts[m] = Math.min(left, MAX_STACK); left -= inventory.mainCounts[m]; }
+        updateHUD = true;
+        return left;
+      }
+      function consumeSelectedItem() {
+        if (gameMode !== 'survival') return true;
+        normalizeInventoryCounts();
+        var idx = inventory.hotbarSlot;
+        if (!inventory.hotbar[idx] || inventory.hotbarCounts[idx] <= 0) return false;
+        inventory.hotbarCounts[idx]--;
+        if (inventory.hotbarCounts[idx] <= 0) { inventory.hotbar[idx] = 0; inventory.hotbarCounts[idx] = 0; holding = 0; }
+        updateHUD = true;
+        return true;
+      }
+      function blockBreakDuration(id) {
+        var name = blockData[id] ? blockData[id].name : '';
+        var times = { grass:0.6,dirt:0.6,sand:0.5,gravel:0.6,stone:1.5,cobblestone:1.5,stoneBricks:1.5,mossyCobble:1.5,bricks:1.5,oakPlanks:1.0,craftingTable:1.0,furnace:1.5,oakLog:1.5,birchLog:1.5,spruceLog:1.5,jungleLog:1.5,darkOakLog:1.5,acaciaLog:1.5,leaves:0.2,glass:0.3,bedrock:99999,obsidian:5.0 };
+        return times[name] || 1.0;
+      }
+      var breakState = { key: '', start: 0 };
+      function tryBreakBlock() {
+        if (!hitBox.pos || Key.control) { breakState.key = ''; updateHUD = true; return; }
+        var id = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
+        if (!id || id === 4) { breakState.key = ''; updateHUD = true; return; }
+        var key = hitBox.pos[0] + ',' + hitBox.pos[1] + ',' + hitBox.pos[2];
+        if (breakState.key !== key) { breakState.key = key; breakState.start = Date.now(); }
+        if (gameMode === 'creative' || Date.now() - breakState.start >= blockBreakDuration(id) * 1000) {
+          changeWorldBlock(0);
+          if (gameMode === 'survival') addItemToInventory(id, 1);
+          breakState.key = '';
+        }
+        updateHUD = true;
+      }
+      function survivalTick() {
+        if (gameMode !== 'survival') return;
+        var now = Date.now();
+        if (!p.nextHungerTick) p.nextHungerTick = now + 30000;
+        if (now >= p.nextHungerTick) { p.hunger = Math.max(0, p.hunger - 1); p.nextHungerTick = now + 30000; updateHUD = true; }
+        if (p.hunger <= 0 && (!p.nextDamageTick || now >= p.nextDamageTick)) { p.health = Math.max(0, p.health - 1); p.nextDamageTick = now + 2000; updateHUD = true; }
+        if (p.health <= 0) { p.x = 8; p.y = terrainHeight(8,8) + 3; p.z = 8; p.health = 20; p.hunger = 20; }
+      }
+      function play() {      } //Globals
       function play() {
         if (typeof returnCraftingItems === "function") {
           returnCraftingItems();
@@ -1273,10 +1338,9 @@ Controls:
             var faceIdx = Math.floor(j / 4);
             var texKey;
             if (i === 76) {
-              // 手持ち・ホットバー・インベントリの作業台だけ、画像どおりの向き
-              // 上面=craftingTableTop / 下面=oakPlanks
-              // ※ワールドに置いた作業台の blockData は変更しない
-              texKey = faceIdx === 0 ? block.textures[1] : (faceIdx === 1 ? block.textures[0] : block.textures[2]);
+              // 手持ち・ホットバー・インベントリの作業台は、置いた作業台と同じ面を使用
+              // 上面=craftingTableTop / 側面=craftingTableSide / 下面=oakPlanks
+              texKey = faceIdx === 0 ? "craftingTableTop" : (faceIdx === 1 ? "oakPlanks" : "craftingTableSide");
             } else if (i === 1) {
               texKey = faceIdx === 0 ? block.textures[0] : (faceIdx === 1 ? block.textures[1] : block.textures[2]);
             } else {
@@ -1908,6 +1972,9 @@ Controls:
         var pos = hitBox.pos;
         if (pos && pos[1] > 0 && pos[1] < maxHeight) {
           var blockVal = t || 0;
+          if (blockVal && gameMode === 'survival') {
+            if (!consumeSelectedItem()) return;
+          }
           world.setBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2], blockVal);
           var key = pos[0] + "," + pos[1] + "," + pos[2];
           blockChanges[key] = blockVal;
@@ -1936,6 +2003,14 @@ Controls:
           var saveObj = {
             id: saveKey,
             worldSeed: worldSeed,
+            worldType: worldType,
+            gameMode: gameMode,
+            structuresEnabled: structuresEnabled,
+            health: p.health,
+            hunger: p.hunger,
+            hotbarCounts: inventory.hotbarCounts,
+            mainCounts: inventory.mainCounts,
+            holdingCount: inventory.holding ? (inventory.holdingCount || 1) : 0,
             blockChanges: blockChanges,
             furnaceOrientations: furnaceOrientations,
             playerX: p.x,
@@ -2498,7 +2573,7 @@ Controls:
               wx = this.x + i;
               wz = this.z + k;
               ground = terrainHeight(wx, wz);
-              if (random() < 0.01) {
+              if (structuresEnabled && random() < 0.01) {
                 top = ground + Math.floor(4.5 + random(2.5));
                 rand = Math.floor(random(4096));
                 var tree = random() < 0.6 ? blockIds.oakLog : (++top && blockIds.birchLog);
@@ -2819,7 +2894,7 @@ Controls:
             this.chunkGenQueue.sort(sortChunks);
           }
           if (Key.leftMouse && p.lastBreak < Date.now() - 250) {
-            changeWorldBlock(0);
+            tryBreakBlock();
           }
           if ((Key.rightMouse || Key.leftMouse && Key.control) && p.lastPlace < Date.now() - 250) {
             p.lastPlace = Date.now();
@@ -2846,7 +2921,7 @@ Controls:
             newWorldBlock();
           }
           if (Key.leftMouse && p.autoBreak && !Key.control) {
-            changeWorldBlock(0);
+            tryBreakBlock();
           }
           var doneWork = false;
           if (this.meshQueue.length) {
@@ -3121,6 +3196,7 @@ Controls:
         }
         updateHUD = true;
         holding = inventory.hotbar[inventory.hotbarSlot];
+              inventory.holdingCount = inventory.hotbarCounts[inventory.hotbarSlot] || (holding ? 1 : 0);
       };
       var keys = {
         32: 1,
@@ -3349,6 +3425,11 @@ Controls:
             var x = width / 2 - (inventory.hotbar.length / 2 * inventory.size) + (i + 0.5) * inventory.size + 25;
             var y = height - inventory.size;
             drawIcon(x, y, inventory.hotbar[i]);
+            if (gameMode === 'survival') {
+              ctx.fillStyle = '#fff'; ctx.font = 'bold 12px Sans-Serif'; ctx.textAlign = 'right';
+              ctx.fillText(String(inventory.hotbarCounts[i] || 0), x + inventory.size / 2, y + inventory.size / 2);
+              ctx.textAlign = 'left';
+            }
           }
         }
         FOV(before);
@@ -3366,6 +3447,38 @@ Controls:
         ctx.moveTo(x, y - 10);
         ctx.lineTo(x, y + 10);
         ctx.stroke();
+        if (gameMode === 'survival') {
+          // ブロック破壊中は、中央の対象ブロックに段階的なひびを表示
+          if (breakState.key && breakState.start && hitBox.pos) {
+            var breakId = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
+            var breakMs = blockBreakDuration(breakId) * 1000;
+            var bp = Math.max(0, Math.min(1, (Date.now() - breakState.start) / Math.max(1, breakMs)));
+            if (survivalHudImages.cracks.complete && survivalHudImages.cracks.naturalWidth) {
+              var crackStage = Math.min(9, Math.floor(bp * 10));
+              var crackDistance = Math.max(0.5, hitBox.closest || 1);
+              var crackSize = Math.max(18, Math.min(240, (inventory.size * 2.8) / crackDistance));
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(
+                survivalHudImages.cracks,
+                crackStage * 64, 0, 64, 64,
+                width / 2 - crackSize / 2, height / 2 - crackSize / 2,
+                crackSize, crackSize
+              );
+              ctx.imageSmoothingEnabled = true;
+            }
+          }
+
+          // 画像式HP・満腹ゲージ。ホットバーの直上に表示
+          var iconSize = Math.max(16, Math.min(22, Math.round(inventory.size * 0.52)));
+          var groupW = iconSize * 10;
+          var gap = Math.max(8, Math.round(iconSize * 0.55));
+          var totalW = groupW * 2 + gap;
+          var hudX = width / 2 - totalW / 2 + 25;
+          var hudY = height - inventory.size * 1.5 - iconSize - 5;
+
+          drawSurvivalIconStrip(survivalHudImages.heartFull, survivalHudImages.heartEmpty, p.health, hudX, hudY, 10, iconSize);
+          drawSurvivalIconStrip(survivalHudImages.foodFull, survivalHudImages.foodEmpty, p.hunger, hudX + groupW + gap, hudY, 10, iconSize);
+        }
         //Hotbar
         x = width / 2 - (9 / 2 * s) + 0.5 + 25;
         y = height - s * 1.5 + 0.5;
@@ -4044,6 +4157,7 @@ Controls:
         var realY = oy + localY * scale;
 
         drawIcon(realX, realY, id);
+        if (gameMode === 'survival') { ctx.fillStyle='#fff'; ctx.font='bold 11px Sans-Serif'; ctx.textAlign='right'; ctx.fillText(String(inventory.mainCounts[r2*9+c2]||0), realX+10, realY+10); ctx.textAlign='left'; }
       }
     }
   }
@@ -4499,8 +4613,12 @@ function clickInvCraftingTable() {
       if (mx >= x && mx < x + slotSize && my >= y && my < y + slotSize) {
         var idx = r * 9 + c;
         var oldItem = inventory.main[idx] || 0;
+        var oldCount = inventory.mainCounts[idx] || (oldItem ? 1 : 0);
+        var holdCount = inventory.holding ? (inventory.holdingCount || 1) : 0;
         inventory.main[idx] = inventory.holding || 0;
+        inventory.mainCounts[idx] = holdCount;
         inventory.holding = oldItem;
+        inventory.holdingCount = oldCount;
         return;
       }
     }
@@ -4512,8 +4630,12 @@ function clickInvCraftingTable() {
     var hx = hotX + hc * (slotSize + gap);
     if (mx >= hx && mx < hx + slotSize && my >= hotY && my < hotY + slotSize) {
       var oldHot = inventory.hotbar[hc] || 0;
+      var oldHotCount = inventory.hotbarCounts[hc] || (oldHot ? 1 : 0);
+      var holdHotCount = inventory.holding ? (inventory.holdingCount || 1) : 0;
       inventory.hotbar[hc] = inventory.holding || 0;
+      inventory.hotbarCounts[hc] = holdHotCount;
       inventory.holding = oldHot;
+      inventory.holdingCount = oldHotCount;
       return;
     }
   }
@@ -4585,8 +4707,12 @@ function clickInvFurnace() {
       if (mx >= x && mx < x + slotSize && my >= y && my < y + slotSize) {
         var idx = r * 9 + c;
         var oldItem = inventory.main[idx] || 0;
+        var oldCount = inventory.mainCounts[idx] || (oldItem ? 1 : 0);
+        var holdCount = inventory.holding ? (inventory.holdingCount || 1) : 0;
         inventory.main[idx] = inventory.holding || 0;
+        inventory.mainCounts[idx] = holdCount;
         inventory.holding = oldItem;
+        inventory.holdingCount = oldCount;
         return;
       }
     }
@@ -4598,8 +4724,12 @@ function clickInvFurnace() {
     var hx = hotX + hc * (slotSize + gap);
     if (mx >= hx && mx < hx + slotSize && my >= hotY && my < hotY + slotSize) {
       var oldHot = inventory.hotbar[hc] || 0;
+      var oldHotCount = inventory.hotbarCounts[hc] || (oldHot ? 1 : 0);
+      var holdHotCount = inventory.holding ? (inventory.holdingCount || 1) : 0;
       inventory.hotbar[hc] = inventory.holding || 0;
+      inventory.hotbarCounts[hc] = holdHotCount;
       inventory.holding = oldHot;
+      inventory.holdingCount = oldHotCount;
       return;
     }
   }
@@ -4630,8 +4760,12 @@ function clickInvFurnace() {
           var overHot = Math.floor((mouseX - hotX) / s);
           if (overHot >= 0 && overHot < 9) {
             var temp = inventory.hotbar[overHot] || 0;
+            var tempCount = inventory.hotbarCounts[overHot] || (temp ? 1 : 0);
+            var holdTempCount = inventory.holding ? (inventory.holdingCount || 1) : 0;
             inventory.hotbar[overHot] = inventory.holding || 0;
+            inventory.hotbarCounts[overHot] = holdTempCount;
             inventory.holding = temp;
+            inventory.holdingCount = tempCount;
           }
           return;
         }
@@ -4642,6 +4776,7 @@ function clickInvFurnace() {
           var over = row * perRow + col;
           if (over < totalBlocks) {
             inventory.holding = over + 1;
+            inventory.holdingCount = 1;
             return;
           }
         }
@@ -4884,6 +5019,8 @@ function clickInvFurnace() {
         switch (e.button) {
           case 0:
             Key.leftMouse = false;
+            breakState.key = '';
+            updateHUD = true;
             break;
           case 1:
             Key.middleMouse = false;
@@ -4998,6 +5135,7 @@ function clickInvFurnace() {
             if (slot >= 0 && slot < inventory.hotbar.length) {
               inventory.hotbarSlot = slot;
               holding = inventory.hotbar[inventory.hotbarSlot];
+              inventory.holdingCount = inventory.hotbarCounts[inventory.hotbarSlot] || (holding ? 1 : 0);
               updateHUD = true;
               e.preventDefault();
               return;
@@ -5113,12 +5251,46 @@ function clickInvFurnace() {
       canvas.oncontextmenu = function(e) {
         e.preventDefault();
       }
+
+      // サバイバルHUD用ピクセル画像（ハート・満腹・破壊ひび）
+      var survivalHudImages = {
+        heartFull: new Image(),
+        heartEmpty: new Image(),
+        foodFull: new Image(),
+        foodEmpty: new Image(),
+        cracks: new Image()
+      };
+      survivalHudImages.heartFull.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAL0AAAASCAYAAAAOnd8LAAAA7klEQVR4nO3ZsRGDIBTG8UcuSzCEaWmcyIEykY2tGYIxTJHD0wiKXooH+X+VPuUHBXAnihBCCCGEVBUTK7Yi0/K+FzGxWk4HWFjarA0cGjytnWsP781o7Qx13mcNDAtLo3VLIY1z0ji3qoeETr7rWFglWKtJv3zpSg0LqwRrM+kJqT331IPXMPysEywsTRY7Pfm7rCZ9L2LC1+5ROu93v66xsLRa0Z3+CMvtDAtLo7WZ9GFFpLDcM1QsLK1WdKdPYWcGhIVVmiUinwP9VmQarZ3C9SkAC0uhdbgKlo1PrxosrEKt3d/BWFi1WoRUkzcgkzeOtwTFoQAAAABJRU5ErkJggg==";
+      survivalHudImages.heartEmpty.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAL0AAAASCAYAAAAOnd8LAAAAz0lEQVR4nO3ZMQ6EIBCF4cdGz2Tj8W3mTFu4lVlRELQa8H8dY/ygGEgUiRBCCCGkq4RUcZbW/XiRQqpWMwEWljdryCHfafoXzaLxaKZZWksLw8LyaH2KiM67aXt+rGNhtWBFTZ9C7tSwsFqwTk1PSO+h6cnrQtOT1yVq+kUKo1nVi6PZ5W8lLCyvVvKkL2G1k2FhebROTb/tiBy21WsuD7CwPFrJkz6H3VkQFpZXK/she8SeLAgLy6NVnGB/k/VkQVhYLVqX18FYWL1ahHSTH8cI7IyA9CpiAAAAAElFTkSuQmCC";
+      survivalHudImages.foodFull.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAL0AAAASCAYAAAAOnd8LAAAA3UlEQVR4nO2ZIRKDMBAA0049Bt0fYDAYNI/gCf1Qf8Aj0DU1NflBNaYvSFVm0jbHhMYcsOtIwuZEkrlLjAEAAADYFAepo6tKF2sf7ST+gwvXGlynOVlfFx/fw+O1NB5cuNS5jrFGv3Pa5iz2pYILlzbXz6L3A/u6MLf7c8n84qS4cGlyRU96gC3DoofdMVvIfhMUC+6fKhsXLg0uTnrYHUn39H7XhBXy5WqT71Rx4dLkEtObcNBoJ9NVpWublBBw4dLtSk5vcnMsXLi0uLKefHMDxYVrLS4AAAAAxbwBKVWMscL0LPAAAAAASUVORK5CYII=";
+      survivalHudImages.foodEmpty.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAL0AAAASCAYAAAAOnd8LAAAAsklEQVR4nO3ZvRGCMACAUfB0g6yRNRyaNVgjG6TQygJNNNAY4L2Ov+8oAuTCMAAAHMpYO3CP4VHaP82peo2W1h5a12+xHOJi+5bmtfejpdVd61LaWXtyfh3T0tpD62PQv058f3K20NLqsVV808ORGfSczqpBn0Mccoir511aWj21vOk5naZ1+tpyUOuaqpZWT63mHwGlz8SWHwlaWv9uNU9vpjmNW29CS6unljk9AADs2xO7KEena6LYsgAAAABJRU5ErkJggg==";
+      survivalHudImages.cracks.src = "data:image/png;base64,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";
+
+      function drawSurvivalIconStrip(fullImg, emptyImg, value, x, y, count, size) {
+        var fullUnits = Math.max(0, Math.min(count * 2, Math.ceil(value)));
+        for (var i = 0; i < count; i++) {
+          var units = Math.max(0, Math.min(2, fullUnits - i * 2));
+          var img = units === 2 ? fullImg : emptyImg;
+          if (img.complete && img.naturalWidth) {
+            ctx.drawImage(img, i * size, 0, size, size, x + i * size, y, size, size);
+          }
+        }
+      }
+
       var backgroundImage;
       var lastAutoSaveTime = 0;
 
       function initEverything() {
         console.log("Initializing world.");
+        var selectedWorld = null;
+        try { selectedWorld = JSON.parse(localStorage.getItem('mc_selected_world') || 'null'); } catch (e) {}
+        worldType = (selectedWorld && selectedWorld.worldType) || 'default';
+        gameMode = (selectedWorld && selectedWorld.gameMode) || 'survival';
+        structuresEnabled = selectedWorld && selectedWorld.structuresEnabled !== undefined ? !!selectedWorld.structuresEnabled : true;
         loadWorldData();
+        if (savedWorldData && savedWorldData.worldType) worldType = savedWorldData.worldType;
+        if (savedWorldData && savedWorldData.gameMode) gameMode = savedWorldData.gameMode;
+        if (savedWorldData && savedWorldData.structuresEnabled !== undefined) structuresEnabled = !!savedWorldData.structuresEnabled;
         worldSeed = (savedWorldData && savedWorldData.worldSeed !== undefined) ? savedWorldData.worldSeed : random(2000000000);
         seedHash(worldSeed);
         noiseSeed(worldSeed);
@@ -5129,7 +5301,7 @@ function clickInvFurnace() {
         var spawnZ = (savedWorldData && savedWorldData.playerZ !== undefined) ? savedWorldData.playerZ : 8;
         var spawnRx = (savedWorldData && savedWorldData.playerRx !== undefined) ? savedWorldData.playerRx : random(-0.5);
         var spawnRy = (savedWorldData && savedWorldData.playerRy !== undefined) ? savedWorldData.playerRy : random(7);
-        var spawnFly = (savedWorldData && savedWorldData.flying !== undefined) ? savedWorldData.flying : false;
+        var spawnFly = (savedWorldData && savedWorldData.flying !== undefined) ? savedWorldData.flying : (gameMode === 'creative');
 
         p = {
           speed: 0.075,
@@ -5158,6 +5330,10 @@ function clickInvFurnace() {
           lastMoveTapKey: "",
           autoBreak: false,
           flying: spawnFly,
+          health: (savedWorldData && savedWorldData.health !== undefined) ? savedWorldData.health : 20,
+          hunger: (savedWorldData && savedWorldData.hunger !== undefined) ? savedWorldData.hunger : 20,
+          nextHungerTick: Date.now() + 30000,
+          nextDamageTick: 0,
           frustum: []
         };
         for (var i = 0; i < 4; i++) {
@@ -5171,6 +5347,10 @@ function clickInvFurnace() {
           if (savedWorldData.main) {
             inventory.main = savedWorldData.main;
           }
+          if (savedWorldData.hotbarCounts) inventory.hotbarCounts = savedWorldData.hotbarCounts;
+          if (savedWorldData.mainCounts) inventory.mainCounts = savedWorldData.mainCounts;
+          inventory.holdingCount = savedWorldData.holdingCount || 0;
+          normalizeInventoryCounts();
           blockChanges = Object.assign({}, savedWorldData.blockChanges || {});
           rebuildChunkBlockMap();
         }
@@ -5281,6 +5461,7 @@ function clickInvFurnace() {
         if (screen === "play") {
           controls();
           runGravity();
+          survivalTick();
           resolveContactsAndUpdatePosition();
           gl.clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT);
           hotbar();
