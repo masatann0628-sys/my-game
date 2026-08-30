@@ -1056,6 +1056,8 @@ Controls:
         var screen;
         angleMode = "radians";
         var hitBox = {};
+        // 2D HUDからワールド面を正しく投影するため、毎フレームのカメラ行列を保持
+        var cameraModelView = newFloat32Array(16);
         var holding = 0;
         var Key = {};
         var g;
@@ -1125,6 +1127,87 @@ Controls:
         return times[name] || 1.0;
       }
       var breakState = { key: '', start: 0 };
+      // サバイバルで破壊したブロックのドロップアイテム
+      var droppedItems = [];
+      var DROP_LIFETIME = 5 * 60 * 1000;
+      // ドロップは近い同種アイテムをスタックして、落下物が大量にあっても軽くする
+      var DROP_MAX_ITEMS = 96;
+      function spawnDroppedItem(id, x, y, z) {
+        if (gameMode !== 'survival' || !id) return;
+        var now = Date.now();
+        var dx0 = x + 0.5, dy0 = y + 0.35, dz0 = z + 0.5;
+        // 同じブロックのドロップは1個の小さなブロックにまとめる
+        for (var i = 0; i < droppedItems.length; i++) {
+          var d = droppedItems[i];
+          if (d.id === id && Math.abs(d.x - dx0) < 0.6 && Math.abs(d.z - dz0) < 0.6 && Math.abs(d.y - dy0) < 1.0) {
+            d.count = (d.count || 1) + 1;
+            d.born = now;
+            return;
+          }
+        }
+        // 上限を設け、古い落下物から整理して描画負荷を抑える
+        if (droppedItems.length >= DROP_MAX_ITEMS) {
+          droppedItems.sort(function(a,b){ return (a.born || 0) - (b.born || 0); });
+          droppedItems.splice(0, Math.max(1, droppedItems.length - DROP_MAX_ITEMS + 1));
+        }
+        droppedItems.push({ id: id, count: 1, x: dx0, y: dy0, z: dz0, vx: (Math.random() - 0.5) * 0.035, vz: (Math.random() - 0.5) * 0.035, vy: 0.11, born: now, spin: Math.random() * Math.PI * 2, spinX: Math.random() * Math.PI * 2, spinY: Math.random() * Math.PI * 2 });
+      }
+      function updateDroppedItems() {
+        if (gameMode !== 'survival') { droppedItems = []; return; }
+        var now = Date.now();
+        for (var i = droppedItems.length - 1; i >= 0; i--) {
+          var d = droppedItems[i];
+          if (now - d.born >= DROP_LIFETIME) { droppedItems.splice(i, 1); continue; }
+          // 落下しながら少しだけ横へ飛び、すべてのドロップを回転させる
+          d.vy -= 0.012;
+          d.y += d.vy;
+          d.x += d.vx || 0;
+          d.z += d.vz || 0;
+          d.vx = (d.vx || 0) * 0.985;
+          d.vz = (d.vz || 0) * 0.985;
+          var ground = terrainHeight(Math.floor(d.x), Math.floor(d.z)) + 0.18;
+          var under = world && world.getBlock ? world.getBlock(Math.floor(d.x), Math.floor(d.y - 0.25), Math.floor(d.z)) : 0;
+          if (under && d.y < Math.floor(d.y) + 0.85) { d.y = Math.floor(d.y) + 0.85; d.vy = 0; }
+          if (!under && d.y < ground) { d.y = ground; d.vy = 0; }
+          d.spin += 0.06;
+          d.spinX = (d.spinX || 0) + 0.045;
+          d.spinY = (d.spinY || 0) + 0.06;
+          var dx = p.x - d.x, dy = (p.y - 0.5) - d.y, dz = p.z - d.z;
+          if (dx*dx + dy*dy + dz*dz <= 1.8*1.8) {
+            var picked = Math.max(1, d.count || 1);
+            var left = addItemToInventory(d.id, picked);
+            if (left <= 0) {
+              droppedItems.splice(i, 1);
+            } else {
+              d.count = left;
+            }
+          }
+        }
+      }
+      function renderDroppedItems() {
+        if (gameMode !== 'survival' || !droppedItems.length) return;
+        // 落下物は最大96個まで。各落下物は実際のブロックを縮小して描画する。
+        for (var i = 0; i < droppedItems.length && i < DROP_MAX_ITEMS; i++) {
+          var d = droppedItems[i];
+          if (!blockData[d.id]) continue;
+          copyArr(modelView, matrix);
+          // ブロックの中心へ移動してから基底軸だけを縮小。
+          // box2は原点中心の立方体を描くので、座標を渡すのではなく
+          // モデルビュー行列側で位置を指定する。
+          trans(modelView, d.x, d.y, d.z);
+          // 落下中もブロックらしい立方体のまま回転
+          rotY(modelView, d.spinY || d.spin || 0);
+          rotX(modelView, d.spinX || 0);
+          var sc = 0.32;
+          modelView[0] *= sc; modelView[1] *= sc; modelView[2] *= sc;
+          modelView[4] *= sc; modelView[5] *= sc; modelView[6] *= sc;
+          modelView[8] *= sc; modelView[9] *= sc; modelView[10] *= sc;
+          matMult();
+          transpose(matrix);
+          uniformMatrix("view3d", programObject3D, "uView", false, matrix);
+          box2(0, 0, 0, 0xff, blockData[d.id].textures);
+        }
+      }
       function tryBreakBlock() {
         if (!hitBox.pos || Key.control) { breakState.key = ''; updateHUD = true; return; }
         var id = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
@@ -1132,8 +1215,8 @@ Controls:
         var key = hitBox.pos[0] + ',' + hitBox.pos[1] + ',' + hitBox.pos[2];
         if (breakState.key !== key) { breakState.key = key; breakState.start = Date.now(); }
         if (gameMode === 'creative' || Date.now() - breakState.start >= blockBreakDuration(id) * 1000) {
+          if (gameMode === 'survival') spawnDroppedItem(id, hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
           changeWorldBlock(0);
-          if (gameMode === 'survival') addItemToInventory(id, 1);
           breakState.key = '';
         }
         updateHUD = true;
@@ -2013,6 +2096,7 @@ Controls:
             holdingCount: inventory.holding ? (inventory.holdingCount || 1) : 0,
             blockChanges: blockChanges,
             furnaceOrientations: furnaceOrientations,
+            droppedItems: droppedItems,
             playerX: p.x,
             playerY: p.y,
             playerZ: p.z,
@@ -2060,6 +2144,7 @@ Controls:
           if (window.indexedDB) {
             loadWorldFromIDB(saveKey).then(function(idbData) {
               if (idbData && idbData.blockChanges) {
+                if (Array.isArray(idbData.droppedItems)) droppedItems = idbData.droppedItems.filter(function(d){ return d && d.id && Date.now() - (d.born || Date.now()) < DROP_LIFETIME; }).slice(0, DROP_MAX_ITEMS).map(function(d){ d.count = Math.max(1, d.count || 1); return d; });
                 if (idbData.furnaceOrientations) {
                   furnaceOrientations = Object.assign({}, idbData.furnaceOrientations);
                 }
@@ -2888,6 +2973,7 @@ Controls:
           var maxChunkX = (p.x >> 4) + renderDistance;
           var maxChunkZ = (p.z >> 4) + renderDistance;
           var chunk = maxChunkX + "," + maxChunkZ;
+          updateDroppedItems();
           if (chunk !== this.lastChunk) {
             this.lastChunk = chunk;
             this.loadChunks();
@@ -2975,6 +3061,7 @@ Controls:
         };
         var render = function() {
           initModelView(p.x, p.y, p.z, p.rx, p.ry);
+          for (var cm = 0; cm < 16; cm++) cameraModelView[cm] = modelView[cm];
           p2.x = Math.round(p.x);
           p2.y = Math.round(p.y);
           p2.z = Math.round(p.z);
@@ -3003,6 +3090,7 @@ Controls:
               chunk.render();
             }
           }
+          renderDroppedItems();
           if (hitBox.pos) {
             blockOutlines = true;
             blockFill = false;
@@ -3299,10 +3387,11 @@ Controls:
           ctx.fill();
           ctx.beginPath();
           ctx.fillStyle = "black";
-          textSize(35);
-          ctx.font = '35px Sans-Serif';
+          var buttonFontSize = /^モード[:：]/.test(button.text) ? 24 : 35;
+          textSize(buttonFontSize);
+          ctx.font = buttonFontSize + 'px Sans-Serif';
           ctx.textAlign = 'center';
-          ctx.fillText(button.text, button.x + button.w / 2, button.y + button.h / 2 + 10);
+          ctx.fillText(button.text, button.x + button.w / 2, button.y + button.h / 2 + Math.round(buttonFontSize * 0.28));
         }
       };
       var initEverything; {
@@ -3328,7 +3417,19 @@ Controls:
           localStorage.setItem("mc_control_mode", "mobile");
           updateMobileControls();
         }, "settings");
-        addButton(width / 2 - 150, 310, 300, 50, "\u623b\u308b", function() {
+        addButton(width / 2 - 150, 310, 300, 50, "\u30e2\u30fc\u30c9: \u30b5\u30d0\u30a4\u30d0\u30eb", function() {
+          gameMode = 'survival';
+          p.flying = false;
+          updateHUD = true;
+          saveWorld();
+        }, "settings");
+        addButton(width / 2 - 150, 380, 300, 50, "\u30e2\u30fc\u30c9: \u30af\u30ea\u30a8\u30a4\u30c6\u30a3\u30d6", function() {
+          gameMode = 'creative';
+          p.flying = true;
+          updateHUD = true;
+          saveWorld();
+        }, "settings");
+        addButton(width / 2 - 150, 450, 300, 50, "\u623b\u308b", function() {
           screen = "pause";
         }, "settings");
       } //Buttons
@@ -3435,6 +3536,19 @@ Controls:
         FOV(before);
       }
 
+      function projectWorldPoint(wx, wy, wz) {
+        // ドロップ描画後にmodelViewが変わっても、必ずカメラ基準で投影する
+        var mv = cameraModelView;
+        var v0 = mv[0]*wx + mv[1]*wy + mv[2]*wz + mv[3];
+        var v1 = mv[4]*wx + mv[5]*wy + mv[6]*wz + mv[7];
+        var v2 = mv[8]*wx + mv[9]*wy + mv[10]*wz + mv[11];
+        var v3 = mv[12]*wx + mv[13]*wy + mv[14]*wz + mv[15];
+        var c0 = projection[0]*v0;
+        var c1 = projection[5]*v1;
+        var c3 = projection[11]*v2;
+        if (!isFinite(c3) || c3 === 0) return null;
+        return { x: width/2 + (c0/c3) * width/2, y: height/2 - (c1/c3) * height/2, depth: c3 };
+      }
       function hud() {
         var s = inventory.size;
         var x = width / 2 + 0.5;
@@ -3448,23 +3562,36 @@ Controls:
         ctx.lineTo(x, y + 10);
         ctx.stroke();
         if (gameMode === 'survival') {
-          // ブロック破壊中は、中央の対象ブロックに段階的なひびを表示
-          if (breakState.key && breakState.start && hitBox.pos) {
+          // ブロックの表面中央に、段階的なひびを貼り付けるように表示
+          if (breakState.key && breakState.start && hitBox.pos && hitBox.face) {
             var breakId = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
             var breakMs = blockBreakDuration(breakId) * 1000;
             var bp = Math.max(0, Math.min(1, (Date.now() - breakState.start) / Math.max(1, breakMs)));
             if (survivalHudImages.cracks.complete && survivalHudImages.cracks.naturalWidth) {
               var crackStage = Math.min(9, Math.floor(bp * 10));
-              var crackDistance = Math.max(0.5, hitBox.closest || 1);
-              var crackSize = Math.max(18, Math.min(240, (inventory.size * 2.8) / crackDistance));
-              ctx.imageSmoothingEnabled = false;
-              ctx.drawImage(
-                survivalHudImages.cracks,
-                crackStage * 64, 0, 64, 64,
-                width / 2 - crackSize / 2, height / 2 - crackSize / 2,
-                crackSize, crackSize
-              );
-              ctx.imageSmoothingEnabled = true;
+              var bx = hitBox.pos[0], by = hitBox.pos[1], bz = hitBox.pos[2];
+              var cx = bx, cy = by, cz = bz, ux = 0.45, uy = 0, uz = 0;
+              var face = hitBox.face;
+              // 面の中央からほんの少し外側へ出して、ブロック表面に貼り付いて見せる
+              if (face === 'top') { cy += 0.505; ux = 0.45; uz = 0; }
+              else if (face === 'bottom') { cy -= 0.505; ux = 0.45; uz = 0; }
+              else if (face === 'east') { cx += 0.505; ux = 0; uz = 0.45; }
+              else if (face === 'west') { cx -= 0.505; ux = 0; uz = 0.45; }
+              else if (face === 'south') { cz += 0.505; ux = 0.45; uz = 0; }
+              else { cz -= 0.505; ux = 0.45; uz = 0; }
+              var crackCenter = projectWorldPoint(cx, cy, cz);
+              var crackEdge = projectWorldPoint(cx + ux, cy + uy, cz + uz);
+              if (crackCenter && crackEdge && crackCenter.depth > 0 && crackEdge.depth > 0) {
+                var crackSize = Math.max(14, Math.min(180, Math.hypot(crackEdge.x - crackCenter.x, crackEdge.y - crackCenter.y) * 1.75));
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(
+                  survivalHudImages.cracks,
+                  crackStage * 64, 0, 64, 64,
+                  crackCenter.x - crackSize / 2, crackCenter.y - crackSize / 2,
+                  crackSize, crackSize
+                );
+                ctx.imageSmoothingEnabled = true;
+              }
             }
           }
 
@@ -5350,6 +5477,7 @@ function clickInvFurnace() {
           if (savedWorldData.hotbarCounts) inventory.hotbarCounts = savedWorldData.hotbarCounts;
           if (savedWorldData.mainCounts) inventory.mainCounts = savedWorldData.mainCounts;
           inventory.holdingCount = savedWorldData.holdingCount || 0;
+          droppedItems = Array.isArray(savedWorldData.droppedItems) ? savedWorldData.droppedItems.filter(function(d){ return d && d.id && Date.now() - (d.born || Date.now()) < DROP_LIFETIME; }).slice(0, DROP_MAX_ITEMS).map(function(d){ d.count = Math.max(1, d.count || 1); return d; }) : [];
           normalizeInventoryCounts();
           blockChanges = Object.assign({}, savedWorldData.blockChanges || {});
           rebuildChunkBlockMap();
@@ -5492,6 +5620,7 @@ function clickInvFurnace() {
           ctx.fillText("設定", width / 2, 100);
           ctx.font = "18px Sans-Serif";
           ctx.fillText(controlMode === "mobile" ? "現在：モバイル用" : "現在：パソコン用", width / 2, 140);
+          ctx.fillText(gameMode === 'creative' ? "現在のモード：クリエイティブ" : "現在のモード：サバイバル", width / 2, 165);
           updateMobileControls();
         } else if (screen.includes("pause")) {
           cursor(CROSS);
