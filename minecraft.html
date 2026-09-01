@@ -17,6 +17,7 @@
       setDoc,
       updateDoc,
       deleteDoc,
+      getDoc,
       onSnapshot,
       query,
       orderBy,
@@ -80,10 +81,7 @@
             id: docSnap.id,
             name: data.name || '無題',
             createdAt: data.createdAt && data.createdAt.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
-            ownerName: data.ownerName || null,
-            worldType: data.worldType || 'default',
-            gameMode: data.gameMode || 'survival',
-            structuresEnabled: data.structuresEnabled !== undefined ? !!data.structuresEnabled : true
+            ownerName: data.ownerName || null
           });
         });
         onChange(arr);
@@ -94,16 +92,13 @@
       return unsub;
     };
 
-    window.createWorldRemote = async function(uid, worldName, ownerName, options) {
+    window.createWorldRemote = async function(uid, worldName, ownerName) {
       if (!uid) return null;
       const colRef = collection(db, 'users', uid, 'worlds');
       const newDocRef = await addDoc(colRef, {
         name: worldName,
         ownerName: ownerName || null,
-        createdAt: serverTimestamp(),
-        worldType: (options && options.worldType) || 'default',
-        gameMode: (options && options.gameMode) || 'survival',
-        structuresEnabled: options && options.structuresEnabled !== undefined ? !!options.structuresEnabled : true
+        createdAt: serverTimestamp()
       });
       return newDocRef.id;
     };
@@ -124,6 +119,38 @@
       if (!uid) return;
       const docRef = doc(db, 'users', uid, 'profile');
       await setDoc(docRef, { displayName: ownerName }, { merge: true });
+    };
+
+    // Multiplayer room helper. The server address is the room identity.
+    function multiplayerRoomId(address) {
+      var str = String(address || 'default-room');
+      var h = 2166136261;
+      for (var i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return 'room_' + (h >>> 0).toString(36);
+    }
+
+    window.prepareMultiplayerRoom = async function(address) {
+      var roomId = multiplayerRoomId(address);
+      var roomRef = doc(db, 'multiplayerRooms', roomId);
+      var snap = await getDoc(roomRef);
+      if (snap.exists()) {
+        var data = snap.data() || {};
+        return { roomId: roomId, seed: Number(data.seed) || 123456789 };
+      }
+      // Deterministic seed from the room id: every client joining the same server
+      // gets the exact same base terrain, even if they join at different times.
+      var seed = 0;
+      for (var i = 0; i < roomId.length; i++) seed = (Math.imul(seed, 31) + roomId.charCodeAt(i)) | 0;
+      seed = Math.abs(seed) || 123456789;
+      await setDoc(roomRef, {
+        address: String(address || 'default-room'),
+        seed: seed,
+        createdAt: serverTimestamp()
+      }, { merge: true });
+      return { roomId: roomId, seed: seed };
     };
   </script>
 
@@ -362,7 +389,7 @@
             <span class="form-desc" data-key="cheatsDesc">/gamemode、/xp 等のコマンド</span>
           </div>
           <div class="form-col">
-            <button class="btn-minecraft" style="margin-bottom:0;" id="btn-mode" data-key="modeSurvival">モード: サバイバル</button>
+            <button class="btn-minecraft" style="margin-bottom:0;" id="btn-bonus-chest" data-key="bonusChestOff">ボーナスチェスト: オフ</button>
           </div>
         </div>
       </div>
@@ -540,8 +567,8 @@
 
   <script>
     const translations = {
-      ja: { single: "シングルプレイ", multi: "マルチプレイ", realms: "Minecraft Realms", options: "設定...", quit: "ゲーム終了", noWorld: "ワールドがありません", playWorld: "選択したワールドで遊ぶ", createWorld: "新規ワールドを作成", edit: "編集", delete: "削除", cancel: "キャンセル", newWorldTitle: "ワールド新規作成", editWorldTitle: "ワールドの編集", deleteWorldTitle: "本当にワールドを削除しますか？", deleteWarning: "この操作は元に戻せません！", deleteButton: "削除", saveWorld: "保存", worldTitleLabel: "タイトル名", structuresOn: "構造物の生成: オン", structuresDesc: "村、ダンジョンなど", worldTypeDefault: "ワールドタイプ: デフォルト" , worldTypeFlat: "ワールドタイプ: フラット", cheatsOn: "チートの許可: オン", cheatsDesc: "/gamemode、/xp 等のコマンド", modeSurvival: "モード: サバイバル" , modeCreative: "モード: クリエイティブ", createWorldBtn: "ワールド新規作成", multiTitle: "マルチプレイで遊ぶ", connectServer: "サーバーに接続", addServer: "サーバーを追加", refresh: "更新", lanSearching: "LAN内のゲームを検索中", addServerTitle: "サーバーの追加", serverNameLabel: "サーバー名", serverAddressLabel: "サーバーアドレス", realmsLogo: "REALMS", realmsMsg: "Realmを所有していないようです。Realmを追加してフレンドと一緒にプレイしましょう。", addRealm: "Realm を追加", back: "戻る", paywallTitle: "マルチプレイ非対応", paywallDesc: "現在はシングルプレイ専用です。<br>大容量ワールド保存・高速読み込みに対応したシングルプレイをお楽しみください。", ok: "OK", settingsTitle: "設定", soundSettings: "サウンド設定...", videoSettings: "ビデオ設定...", langSettings: "言語...", brightnessSettings: "明るさ...", done: "完了", quitConfirm: "本当にゲームを終了しますか？", quitTitle: "ゲームが終了しました", quitSub: "ブラウザのタブを閉じてください" },
-      en: { single: "Singleplayer", multi: "Multiplayer", realms: "Minecraft Realms", options: "Options...", quit: "Quit", noWorld: "No worlds found", playWorld: "Play Selected World", createWorld: "Create New World", edit: "Edit", delete: "Delete", cancel: "Cancel", newWorldTitle: "Create New World", editWorldTitle: "Edit World", deleteWorldTitle: "Are you sure you want to delete this server/world?", deleteWarning: "This action cannot be undone!", deleteButton: "Delete", saveWorld: "Save", worldTitleLabel: "World Name", structuresOn: "Generate Structures: ON", structuresDesc: "Villages, dungeons, etc.", worldTypeDefault: "World Type: Default" , worldTypeFlat: "World Type: Flat", cheatsOn: "Allow Cheats: ON", cheatsDesc: "/gamemode, /xp, etc.", modeSurvival: "Mode: Survival" , modeCreative: "Mode: Creative", createWorldBtn: "Create New World", multiTitle: "Play Multiplayer", connectServer: "Connect to Server", addServer: "Add Server", refresh: "Refresh", lanSearching: "Searching for games on your LAN", addServerTitle: "Add Server", serverNameLabel: "Server Name", serverAddressLabel: "Server Address", realmsLogo: "REALMS", realmsMsg: "You do not own a Realm. Add a Realm to play with your friends.", addRealm: "Add Realm", back: "Back", paywallTitle: "Multiplayer Unavailable", paywallDesc: "This version is currently singleplayer only.<br>Enjoy high-performance infinite world saving and loading in Singleplayer!", ok: "OK", settingsTitle: "Options", soundSettings: "Music & Sounds...", videoSettings: "Video Settings...", langSettings: "Language...", brightnessSettings: "Brightness...", done: "Done", quitConfirm: "Are you sure you want to quit?", quitTitle: "Game Quit", quitSub: "Please close this browser tab" }
+      ja: { single: "シングルプレイ", multi: "マルチプレイ", realms: "Minecraft Realms", options: "設定...", quit: "ゲーム終了", noWorld: "ワールドがありません", playWorld: "選択したワールドで遊ぶ", createWorld: "新規ワールドを作成", edit: "編集", delete: "削除", cancel: "キャンセル", newWorldTitle: "ワールド新規作成", editWorldTitle: "ワールドの編集", deleteWorldTitle: "本当にワールドを削除しますか？", deleteWarning: "この操作は元に戻せません！", deleteButton: "削除", saveWorld: "保存", worldTitleLabel: "タイトル名", structuresOn: "構造物の生成: オン", structuresDesc: "村、ダンジョンなど", worldTypeDefault: "ワールドタイプ: デフォルト", cheatsOn: "チートの許可: オン", cheatsDesc: "/gamemode、/xp 等のコマンド", bonusChestOff: "ボーナスチェスト: オフ", createWorldBtn: "ワールド新規作成", multiTitle: "マルチプレイで遊ぶ", connectServer: "サーバーに接続", addServer: "サーバーを追加", refresh: "更新", lanSearching: "LAN内のゲームを検索中", addServerTitle: "サーバーの追加", serverNameLabel: "サーバー名", serverAddressLabel: "サーバーアドレス", realmsLogo: "REALMS", realmsMsg: "Realmを所有していないようです。Realmを追加してフレンドと一緒にプレイしましょう。", addRealm: "Realm を追加", back: "戻る", paywallTitle: "マルチプレイ非対応", paywallDesc: "現在はシングルプレイ専用です。<br>大容量ワールド保存・高速読み込みに対応したシングルプレイをお楽しみください。", ok: "OK", settingsTitle: "設定", soundSettings: "サウンド設定...", videoSettings: "ビデオ設定...", langSettings: "言語...", brightnessSettings: "明るさ...", done: "完了", quitConfirm: "本当にゲームを終了しますか？", quitTitle: "ゲームが終了しました", quitSub: "ブラウザのタブを閉じてください" },
+      en: { single: "Singleplayer", multi: "Multiplayer", realms: "Minecraft Realms", options: "Options...", quit: "Quit", noWorld: "No worlds found", playWorld: "Play Selected World", createWorld: "Create New World", edit: "Edit", delete: "Delete", cancel: "Cancel", newWorldTitle: "Create New World", editWorldTitle: "Edit World", deleteWorldTitle: "Are you sure you want to delete this server/world?", deleteWarning: "This action cannot be undone!", deleteButton: "Delete", saveWorld: "Save", worldTitleLabel: "World Name", structuresOn: "Generate Structures: ON", structuresDesc: "Villages, dungeons, etc.", worldTypeDefault: "World Type: Default", cheatsOn: "Allow Cheats: ON", cheatsDesc: "/gamemode, /xp, etc.", bonusChestOff: "Bonus Chest: OFF", createWorldBtn: "Create New World", multiTitle: "Play Multiplayer", connectServer: "Connect to Server", addServer: "Add Server", refresh: "Refresh", lanSearching: "Searching for games on your LAN", addServerTitle: "Add Server", serverNameLabel: "Server Name", serverAddressLabel: "Server Address", realmsLogo: "REALMS", realmsMsg: "You do not own a Realm. Add a Realm to play with your friends.", addRealm: "Add Realm", back: "Back", paywallTitle: "Multiplayer Unavailable", paywallDesc: "This version is currently singleplayer only.<br>Enjoy high-performance infinite world saving and loading in Singleplayer!", ok: "OK", settingsTitle: "Options", soundSettings: "Music & Sounds...", videoSettings: "Video Settings...", langSettings: "Language...", brightnessSettings: "Brightness...", done: "Done", quitConfirm: "Are you sure you want to quit?", quitTitle: "Game Quit", quitSub: "Please close this browser tab" }
     };
 
     let currentLang = 'ja';
@@ -585,10 +612,10 @@
         localStorage.setItem(localWorldsKey(uid), JSON.stringify(arr));
       } catch (e) {}
     }
-    function addLocalWorld(uid, name, worldType, gameMode, structuresEnabled) {
+    function addLocalWorld(uid, name) {
       const arr = loadLocalWorlds(uid);
       const id = 'local-' + (uid || 'guest') + '-' + Date.now();
-      const w = { id: id, name: name, createdAt: Date.now(), worldType: worldType || 'default', gameMode: gameMode || 'survival', structuresEnabled: structuresEnabled !== undefined ? !!structuresEnabled : true };
+      const w = { id: id, name: name, createdAt: Date.now() };
       arr.push(w);
       saveLocalWorlds(uid, arr);
       return w;
@@ -768,7 +795,10 @@
       changeScreen(singleMenu);
     });
     document.getElementById('btn-multi').addEventListener('click', () => {
-      paywallModal.style.display = 'flex';
+      document.getElementById('greeting-message').textContent = '';
+      changeScreen(multiMenu);
+      renderServers();
+      fetchServerStatuses();
     });
     document.getElementById('btn-realms').addEventListener('click', () => changeScreen(realmsMenu));
     document.getElementById('btn-options').addEventListener('click', () => changeScreen(settingsMenu));
@@ -778,7 +808,7 @@
       renderWorlds();
       changeScreen(mainMenu);
     });
-    document.getElementById('btn-go-create').addEventListener('click', () => { createWorldType = 'default'; createGameMode = 'survival'; createStructuresEnabled = true; if (worldTypeBtn) worldTypeBtn.textContent = currentLang === 'ja' ? 'ワールドタイプ: デフォルト' : 'World Type: Default'; if (modeBtn) modeBtn.textContent = currentLang === 'ja' ? 'モード: サバイバル' : 'Mode: Survival'; changeScreen(createMenu); });
+    document.getElementById('btn-go-create').addEventListener('click', () => changeScreen(createMenu));
     document.getElementById('btn-create-back').addEventListener('click', () => changeScreen(singleMenu));
 
     document.getElementById('btn-play-world').addEventListener('click', () => {
@@ -792,15 +822,27 @@
       }
     });
 
-    function connectToMultiplayerServer(srv) {
+    async function connectToMultiplayerServer(srv) {
       if (!srv) return;
       const pName = savedDisplayName || _currentPassword || ('Player_' + Math.floor(Math.random() * 9000 + 1000));
+      var room;
+      try {
+        if (typeof window.prepareMultiplayerRoom === 'function') {
+          room = await window.prepareMultiplayerRoom(srv.address);
+        }
+      } catch (e) {
+        console.error('マルチプレイ部屋の準備に失敗:', e);
+      }
+      if (!room) {
+        alert('マルチプレイ部屋に接続できませんでした。Firebase / Firestore の設定を確認してください。');
+        return;
+      }
       try {
         sessionStorage.setItem('mc_game_mode', 'multi');
         sessionStorage.setItem('mc_multi_server', JSON.stringify(srv));
         sessionStorage.setItem('mc_player_name', pName);
       } catch (e) {}
-      window.location.href = `minecraft-my.html?mode=multi&server=${encodeURIComponent(srv.address)}&name=${encodeURIComponent(pName)}`;
+      window.location.href = 'minecraft-my.html?mode=multi&server=' + encodeURIComponent(srv.address) + '&name=' + encodeURIComponent(pName) + '&room=' + encodeURIComponent(room.roomId) + '&seed=' + encodeURIComponent(room.seed);
     }
 
     document.getElementById('btn-multi-back').addEventListener('click', () => changeScreen(mainMenu));
@@ -854,25 +896,6 @@
     document.getElementById('btn-add-realm').addEventListener('click', () => { paywallModal.style.display = 'flex'; });
     document.getElementById('btn-close-paywall').addEventListener('click', () => { paywallModal.style.display = 'none'; });
 
-    let createWorldType = 'default';
-    let createGameMode = 'survival';
-    let createStructuresEnabled = true;
-
-    const worldTypeBtn = document.getElementById('btn-world-type');
-    if (worldTypeBtn) worldTypeBtn.addEventListener('click', () => {
-      createWorldType = createWorldType === 'default' ? 'flat' : 'default';
-      worldTypeBtn.textContent = currentLang === 'ja'
-        ? (createWorldType === 'default' ? 'ワールドタイプ: デフォルト' : 'ワールドタイプ: フラット')
-        : (createWorldType === 'default' ? 'World Type: Default' : 'World Type: Flat');
-    });
-    const modeBtn = document.getElementById('btn-mode');
-    if (modeBtn) modeBtn.addEventListener('click', () => {
-      createGameMode = createGameMode === 'survival' ? 'creative' : 'survival';
-      modeBtn.textContent = currentLang === 'ja'
-        ? (createGameMode === 'survival' ? 'モード: サバイバル' : 'モード: クリエイティブ')
-        : (createGameMode === 'survival' ? 'Mode: Survival' : 'Mode: Creative');
-    });
-
     // 未実装ボタン: 「作成中です。」モーダルを表示
     const comingSoonModal = document.getElementById('coming-soon-modal');
     function showComingSoon() { if (comingSoonModal) comingSoonModal.style.display = 'flex'; }
@@ -884,15 +907,10 @@
       document.getElementById('server-address-input').value = srv.address;
       changeScreen(serverAddMenu);
     });
-    const structuresBtn = document.getElementById('btn-structures');
-    if (structuresBtn) structuresBtn.addEventListener('click', () => {
-      createStructuresEnabled = !createStructuresEnabled;
-      structuresBtn.textContent = currentLang === 'ja'
-        ? ('構造物の生成: ' + (createStructuresEnabled ? 'オン' : 'オフ'))
-        : ('Generate Structures: ' + (createStructuresEnabled ? 'On' : 'Off'));
+    ['btn-structures', 'btn-world-type', 'btn-cheats', 'btn-bonus-chest'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', showComingSoon);
     });
-    const cheatsBtn = document.getElementById('btn-cheats');
-    if (cheatsBtn) cheatsBtn.addEventListener('click', showComingSoon);
 
     function renderServers() {
       const serverList = document.getElementById('server-list');
@@ -975,16 +993,16 @@
 
           if (window.createWorldRemote && firebaseUid) {
             try {
-              await window.createWorldRemote(firebaseUid, worldName, savedDisplayName, { worldType: createWorldType, gameMode: createGameMode, structuresEnabled: createStructuresEnabled });
+              await window.createWorldRemote(firebaseUid, worldName, savedDisplayName);
             } catch (e) {
-              const w = addLocalWorld(firebaseUid, worldName, createWorldType, createGameMode, createStructuresEnabled);
+              const w = addLocalWorld(firebaseUid, worldName);
               if (!firebaseUnsubWorlds) {
                 worlds.push(w);
                 renderWorlds();
               }
             }
           } else {
-            const w = addLocalWorld(firebaseUid, worldName, createWorldType, createGameMode, createStructuresEnabled);
+            const w = addLocalWorld(firebaseUid, worldName);
             worlds.push(w);
             renderWorlds();
           }
