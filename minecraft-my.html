@@ -600,6 +600,10 @@ Controls:
       var savedWorldData = null;
       var pendingBlockChanges = false;
       var isMultiplayer = false;
+      var multiplayerQuery = new URLSearchParams(window.location.search);
+      var multiplayerRoomId = multiplayerQuery.get('room') || '';
+      var multiplayerSeedParam = Number(multiplayerQuery.get('seed'));
+      isMultiplayer = multiplayerQuery.get('mode') === 'multi' && !!multiplayerRoomId;
 
       // --- High Performance Storage Engine (IndexedDB + Spatial Chunk Cache) ---
       // Stores unlimited block changes without hitting localStorage 5MB quota or freezing
@@ -1421,11 +1425,25 @@ Controls:
             var faceIdx = Math.floor(j / 4);
             var texKey;
             if (i === 76) {
-              // 手持ち・ホットバー・インベントリの作業台は、置いた作業台と同じ面を使用
-              // 上面=craftingTableTop / 側面=craftingTableSide / 下面=oakPlanks
-              texKey = faceIdx === 0 ? "craftingTableTop" : (faceIdx === 1 ? "oakPlanks" : "craftingTableSide");
+              // 作業台ホットバー/インベントリ用
+              // 上面 = craftingTableTop
+              // 側面 = craftingTableSide
+
+              if (faceIdx === 0) {
+                texKey = "craftingTableTop";
+              } else {
+                texKey = "craftingTableSide";
+              }
             } else if (i === 1) {
-              texKey = faceIdx === 0 ? block.textures[0] : (faceIdx === 1 ? block.textures[1] : block.textures[2]);
+              // 草ブロックのホットバー/インベントリアイコンを固定
+              // 上面 = grassTop / 下面 = dirt / 側面 = grassSide
+              if (faceIdx === 0) {
+                texKey = "grassTop";
+              } else if (faceIdx === 1) {
+                texKey = "dirt";
+              } else {
+                texKey = "grassSide";
+              }
             } else {
               texKey = (block.textures && block.textures.length >= 6)
                 ? (faceIdx === 0 ? block.textures[0] : (faceIdx === 1 ? block.textures[2] : block.textures[3]))
@@ -2073,6 +2091,9 @@ Controls:
             delete furnaceOrientations[key];
           }
           updateChunkBlockMapSingle(pos[0], pos[1], pos[2], blockVal);
+          if (isMultiplayer && window.__mcMPBridge && typeof window.__mcMPBridge.localBlockChanged === 'function') {
+            window.__mcMPBridge.localBlockChanged(pos[0], pos[1], pos[2], blockVal, furnaceOrientations[key]);
+          }
           if (blockVal) {
             p.lastPlace = Date.now();
           } else {
@@ -5418,7 +5439,9 @@ function clickInvFurnace() {
         if (savedWorldData && savedWorldData.worldType) worldType = savedWorldData.worldType;
         if (savedWorldData && savedWorldData.gameMode) gameMode = savedWorldData.gameMode;
         if (savedWorldData && savedWorldData.structuresEnabled !== undefined) structuresEnabled = !!savedWorldData.structuresEnabled;
-        worldSeed = (savedWorldData && savedWorldData.worldSeed !== undefined) ? savedWorldData.worldSeed : random(2000000000);
+        worldSeed = (isMultiplayer && isFinite(multiplayerSeedParam) && multiplayerSeedParam > 0)
+          ? multiplayerSeedParam
+          : ((savedWorldData && savedWorldData.worldSeed !== undefined) ? savedWorldData.worldSeed : random(2000000000));
         seedHash(worldSeed);
         noiseSeed(worldSeed);
         renderDistance = 4;
@@ -5579,6 +5602,44 @@ function clickInvFurnace() {
             saveWorld();
           } catch(e) {}
         });
+
+        // Public bridge used only by the multiplayer module. It does not alter
+        // singleplayer behavior and keeps remote changes out of local callbacks.
+        window.__mcMPBridge = {
+          enabled: isMultiplayer,
+          roomId: multiplayerRoomId,
+          getPlayerState: function() {
+            if (!p) return null;
+            return { x:p.x, y:p.y, z:p.z, rx:p.rx, ry:p.ry, name:(multiplayerQuery.get('name') || 'Player') };
+          },
+          getBlockChanges: function() { return Object.assign({}, blockChanges); },
+          getFurnaceOrientations: function() { return Object.assign({}, furnaceOrientations); },
+          applyRemoteBlock: function(x, y, z, blockVal, furnaceDir) {
+            x = Number(x); y = Number(y); z = Number(z); blockVal = Number(blockVal) || 0;
+            if (!isFinite(x) || !isFinite(y) || !isFinite(z)) return;
+            var key = x + ',' + y + ',' + z;
+            blockChanges[key] = blockVal;
+            if (blockVal === 78 && furnaceDir !== undefined && furnaceDir !== null) furnaceOrientations[key] = Number(furnaceDir) || 0;
+            else if (blockVal === 0) delete furnaceOrientations[key];
+            updateChunkBlockMapSingle(x, y, z, blockVal);
+            if (world && world.chunks[x >> 4] && world.chunks[x >> 4][z >> 4]) {
+              world.setBlock(x, y, z, blockVal);
+            }
+          },
+          projectWorldPoint: function(x,y,z) { return projectWorldPoint(x,y,z); },
+          isWorldPointVisible: function(x,y,z) {
+            if (!world || !p) return false;
+            var dx=x-p.x, dy=y-p.y, dz=z-p.z;
+            var dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
+            var steps=Math.max(2, Math.ceil(dist*3));
+            for (var q=1;q<steps;q++) {
+              var t=q/steps;
+              var bx=Math.floor(p.x+dx*t), by=Math.floor(p.y+dy*t), bz=Math.floor(p.z+dz*t);
+              if (world.getBlock(bx,by,bz)) return false;
+            }
+            return true;
+          }
+        };
         play();
       }
       var gameLoop = function() {
@@ -5599,6 +5660,9 @@ function clickInvFurnace() {
             hud();
             updateHUD = false;
             freezeFrame = false;
+          }
+          if (isMultiplayer && typeof window.__mcMPDrawRemotePlayers === 'function') {
+            window.__mcMPDrawRemotePlayers();
           }
           // Auto-save periodically
           if (win.performance.now() - lastAutoSaveTime > 10000) {
@@ -5663,6 +5727,304 @@ function clickInvFurnace() {
     }
     init();
   </script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
+  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCGtbyyuNyh_hDvolfSMaPDJpSU2eIOzgw",
+    authDomain: "my-minecraft-1d602.firebaseapp.com",
+    projectId: "my-minecraft-1d602",
+    storageBucket: "my-minecraft-1d602.firebasestorage.app",
+    messagingSenderId: "306797977030",
+    appId: "1:306797977030:web:86aa5bc4381d1476ff26c7"
+  };
+
+  const q = new URLSearchParams(location.search);
+  if (q.get('mode') !== 'multi' || !q.get('room')) {
+    // Multiplayer module stays completely dormant in singleplayer.
+  } else {
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    const roomId = q.get('room');
+    const playerName = q.get('name') || 'Player';
+    const bridgeWait = () => window.__mcMPBridge && window.__mcMPBridge.enabled;
+
+    let myId = localStorage.getItem('mc_mp_client_id');
+    if (!myId) {
+      myId = 'p_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem('mc_mp_client_id', myId);
+    }
+
+    const playersRef = collection(db, 'multiplayerRooms', roomId, 'players');
+    const blocksRef = collection(db, 'multiplayerRooms', roomId, 'blocks');
+    const remotePlayers = new Map();
+    let blockUnsub = null;
+    let playerUnsub = null;
+    let ready = false;
+    let lastPlayerWrite = 0;
+    let lastLocalBlockUpload = 0;
+
+    async function startMultiplayer() {
+      try {
+        try { await signInAnonymously(auth); } catch (e) { /* current rules may not require Auth */ }
+
+        // Subscribe to players.
+        playerUnsub = onSnapshot(playersRef, snap => {
+          const seen = new Set();
+          snap.forEach(ds => {
+            if (ds.id === myId) return;
+            const d = ds.data() || {};
+            if (typeof d.x !== 'number' || typeof d.y !== 'number' || typeof d.z !== 'number') return;
+            seen.add(ds.id);
+            const old = remotePlayers.get(ds.id);
+            remotePlayers.set(ds.id, {
+              id: ds.id,
+              name: String(d.name || 'Player'),
+              tx: d.x, ty: d.y, tz: d.z,
+              ry: Number(d.ry) || 0,
+              x: old ? old.x : d.x,
+              y: old ? old.y : d.y,
+              z: old ? old.z : d.z,
+              last: Date.now()
+            });
+          });
+          for (const [id, p] of remotePlayers) {
+            if (!seen.has(id) && Date.now() - p.last > 5000) remotePlayers.delete(id);
+          }
+        });
+
+        // Subscribe to block changes. Remote application never calls the local upload callback.
+        blockUnsub = onSnapshot(blocksRef, snap => {
+          if (!bridgeWait()) return;
+          snap.docChanges().forEach(ch => {
+            const d = ch.doc.data() || {};
+            const key = ch.doc.id;
+            const parts = key.split(',');
+            if (parts.length !== 3) return;
+            const x = Number(parts[0]), y = Number(parts[1]), z = Number(parts[2]);
+            if (ch.type === 'removed') {
+              window.__mcMPBridge.applyRemoteBlock(x,y,z,0,d.furnaceDir);
+            } else {
+              window.__mcMPBridge.applyRemoteBlock(x,y,z,Number(d.id)||0,d.furnaceDir);
+            }
+          });
+        });
+
+        // If this room has no block records yet, seed it from the local world's saved edits.
+        try {
+          const existing = await getDocs(blocksRef);
+          if (existing.empty && bridgeWait()) {
+            const local = window.__mcMPBridge.getBlockChanges();
+            const furnace = window.__mcMPBridge.getFurnaceOrientations();
+            const keys = Object.keys(local);
+            for (let i=0; i<keys.length; i++) {
+              const key = keys[i];
+              await setDoc(doc(blocksRef, key), {
+                id: Number(local[key]) || 0,
+                furnaceDir: furnace[key] !== undefined ? furnace[key] : null,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }
+        } catch (e) { console.warn('初期ブロック同期:', e); }
+
+        ready = true;
+      } catch (e) {
+        console.error('Multiplayer initialization failed:', e);
+      }
+    }
+
+    function uploadLocalBlock(x,y,z,id,furnaceDir) {
+      if (!ready) return;
+      const key = x + ',' + y + ',' + z;
+      setDoc(doc(blocksRef, key), {
+        id: Number(id) || 0,
+        furnaceDir: furnaceDir !== undefined ? furnaceDir : null,
+        updatedAt: serverTimestamp()
+      }).catch(e => console.warn('ブロック同期失敗:', e));
+    }
+
+    // Remove the document for air to keep the room compact.
+    const mpCanvas = document.createElement('canvas');
+    mpCanvas.id = 'multiplayer-player-overlay';
+    mpCanvas.style.position = 'fixed';
+    mpCanvas.style.left = '0';
+    mpCanvas.style.top = '0';
+    mpCanvas.style.width = '100vw';
+    mpCanvas.style.height = '100vh';
+    mpCanvas.style.pointerEvents = 'none';
+    mpCanvas.style.zIndex = '20';
+    document.body.appendChild(mpCanvas);
+    const mpCtx = mpCanvas.getContext('2d');
+    function resizeMPOverlay() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      mpCanvas.width = Math.floor(innerWidth * dpr);
+      mpCanvas.height = Math.floor(innerHeight * dpr);
+      mpCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resizeMPOverlay();
+    window.addEventListener('resize', resizeMPOverlay, { passive: true });
+
+    window.__mcMPDrawRemotePlayers = function() {
+      if (!ready || !bridgeWait()) return;
+      const bridge = window.__mcMPBridge;
+      const now = Date.now();
+      const ctx = mpCtx;
+      const width = innerWidth, height = innerHeight;
+      ctx.clearRect(0, 0, width, height);
+
+      // Remote players are drawn as Minecraft-style human avatars on a HUD overlay.
+      // This does not replace or modify the local player's rendering.
+      const visiblePlayers = [];
+      for (const [id, rp] of remotePlayers) {
+        if (now - rp.last > 7000) continue;
+
+        // Smooth network movement so remote players do not jump between packets.
+        rp.x += (rp.tx - rp.x) * 0.28;
+        rp.y += (rp.ty - rp.y) * 0.28;
+        rp.z += (rp.tz - rp.z) * 0.28;
+
+        // Keep normal block occlusion: a player behind a solid block is hidden.
+        if (!bridge.isWorldPointVisible(rp.x, rp.y - 0.7, rp.z)) continue;
+
+        const feet = bridge.projectWorldPoint(rp.x, rp.y - 1.62, rp.z);
+        const head = bridge.projectWorldPoint(rp.x, rp.y + 0.18, rp.z);
+        const left = bridge.projectWorldPoint(rp.x - 0.30, rp.y - 0.78, rp.z);
+        const right = bridge.projectWorldPoint(rp.x + 0.30, rp.y - 0.78, rp.z);
+        if (!feet || !head || !left || !right) continue;
+        if (!isFinite(feet.depth) || !isFinite(head.depth) || feet.depth <= 0 || head.depth <= 0) continue;
+
+        const topY = Math.min(head.y, feet.y);
+        const bottomY = Math.max(head.y, feet.y);
+        const h = bottomY - topY;
+        const w = Math.max(8, Math.abs(right.x - left.x));
+        const cx = (left.x + right.x) / 2;
+        if (h < 8 || h > height * 2.5) continue;
+        if (bottomY < -100 || topY > height + 100 || cx < -150 || cx > width + 150) continue;
+
+        visiblePlayers.push({ rp, topY, bottomY, h, w, cx, depth: feet.depth });
+      }
+
+      // Farther players first, nearer players last.
+      visiblePlayers.sort((a, b) => b.depth - a.depth);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.imageSmoothingEnabled = false;
+
+      for (const item of visiblePlayers) {
+        const rp = item.rp;
+        const topY = item.topY;
+        const bottomY = item.bottomY;
+        const h = item.h;
+        const w = item.w;
+        const cx = item.cx;
+
+        const headH = h * 0.30;
+        const bodyH = h * 0.34;
+        const legH = h * 0.36;
+        const headW = w * 0.72;
+        const bodyW = w * 0.78;
+        const armW = Math.max(2, w * 0.18);
+        const legW = Math.max(3, w * 0.29);
+        const gap = Math.max(1, w * 0.06);
+
+        // Shadow at the player's feet.
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fillRect(cx - w * 0.55, bottomY - Math.max(2, h * 0.025), w * 1.10, Math.max(2, h * 0.04));
+
+        // Head.
+        ctx.fillStyle = '#c58b62';
+        ctx.fillRect(cx - headW / 2, topY, headW, headH);
+        ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+        ctx.lineWidth = Math.max(1, w * 0.045);
+        ctx.strokeRect(cx - headW / 2, topY, headW, headH);
+
+        // Simple face, so the remote object is clearly a person rather than a block.
+        const eyeY = topY + headH * 0.43;
+        const eyeSize = Math.max(1.5, w * 0.055);
+        const eyeDX = headW * 0.22;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(cx - eyeDX - eyeSize, eyeY, eyeSize * 1.7, eyeSize * 1.7);
+        ctx.fillRect(cx + eyeDX - eyeSize * 0.7, eyeY, eyeSize * 1.7, eyeSize * 1.7);
+        ctx.fillStyle = '#4a78a8';
+        ctx.fillRect(cx - eyeDX + eyeSize * 0.15, eyeY + eyeSize * 0.2, eyeSize, eyeSize * 1.2);
+        ctx.fillRect(cx + eyeDX + eyeSize * 0.15, eyeY + eyeSize * 0.2, eyeSize, eyeSize * 1.2);
+
+        // Body.
+        const bodyY = topY + headH;
+        ctx.fillStyle = '#4fd7df';
+        ctx.fillRect(cx - bodyW / 2, bodyY, bodyW, bodyH);
+        ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeRect(cx - bodyW / 2, bodyY, bodyW, bodyH);
+
+        // Arms.
+        ctx.fillStyle = '#c58b62';
+        ctx.fillRect(cx - bodyW / 2 - armW, bodyY, armW, bodyH);
+        ctx.fillRect(cx + bodyW / 2, bodyY, armW, bodyH);
+        ctx.strokeRect(cx - bodyW / 2 - armW, bodyY, armW, bodyH);
+        ctx.strokeRect(cx + bodyW / 2, bodyY, armW, bodyH);
+
+        // Legs.
+        const legY = bodyY + bodyH;
+        ctx.fillStyle = '#6d63df';
+        ctx.fillRect(cx - legW - gap / 2, legY, legW, legH);
+        ctx.fillRect(cx + gap / 2, legY, legW, legH);
+        ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeRect(cx - legW - gap / 2, legY, legW, legH);
+        ctx.strokeRect(cx + gap / 2, legY, legW, legH);
+
+        // Name tag.
+        const fontSize = Math.max(10, Math.min(18, h * 0.16));
+        ctx.font = 'bold ' + fontSize + 'px Minecraftia, Sans-Serif';
+        const name = String(rp.name || 'Player').slice(0, 24);
+        const nameY = Math.max(12, topY - 7);
+        const tw = ctx.measureText(name).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(cx - tw / 2 - 4, nameY - fontSize, tw + 8, fontSize + 5);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(name, cx, nameY);
+      }
+      ctx.restore();
+    };
+
+    window.__mcMPBridgeReady = true;
+    // Wait for the game closure to expose its bridge, then attach the upload callback.
+    const bridgeTimer = setInterval(() => {
+      if (!bridgeWait()) return;
+      clearInterval(bridgeTimer);
+      window.__mcMPBridge.localBlockChanged = uploadLocalBlock;
+    }, 50);
+
+    setInterval(() => {
+      if (!ready || !bridgeWait()) return;
+      const now = Date.now();
+      if (now - lastPlayerWrite < 100) return;
+      lastPlayerWrite = now;
+      const s = window.__mcMPBridge.getPlayerState();
+      if (!s) return;
+      setDoc(doc(playersRef, myId), {
+        name: playerName,
+        x: Number(s.x)||0,
+        y: Number(s.y)||0,
+        z: Number(s.z)||0,
+        rx: Number(s.rx)||0,
+        ry: Number(s.ry)||0,
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch(e => {});
+    }, 50);
+
+    window.addEventListener('beforeunload', () => {
+      try { deleteDoc(doc(playersRef, myId)); } catch(e) {}
+    });
+
+    startMultiplayer();
+  }
+</script>
+
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
 </body>
