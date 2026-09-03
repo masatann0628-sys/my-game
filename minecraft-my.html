@@ -100,7 +100,52 @@ Controls:
     var init = delag(function() {
       var Math = MathGlob;
       var setPixel, getPixels;
+      var drawDoorTexture = function(n, plankTexKey, isUpper) {
+        var src = textures[plankTexKey];
+        if (typeof src === "function") {
+          src(n);
+        } else if (typeof src === "string") {
+          var pix = getPixels(src);
+          for (var i = 0; i < pix.length; i += 4) {
+            setPixel(n, (i >> 2) & 15, i >> 6, pix[i], pix[i + 1], pix[i + 2], pix[i + 3]);
+          }
+        }
+        for (var x = 0; x < 16; x++) {
+          setPixel(n, x, 0, 96, 68, 36);
+          setPixel(n, x, 15, 96, 68, 36);
+        }
+        for (var y = 0; y < 16; y++) {
+          setPixel(n, 0, y, 96, 68, 36);
+          setPixel(n, 15, y, 96, 68, 36);
+        }
+        for (var y = 2; y < 14; y++) {
+          for (var x = 2; x < 14; x++) {
+            var edge = (x === 2 || x === 7 || x === 13 || y === 2 || y === 13);
+            setPixel(n, x, y, edge ? 110 : 150, edge ? 80 : 122, edge ? 46 : 74);
+          }
+        }
+        for (var y2 = 4; y2 < 12; y2++) {
+          for (var x2 = 4; x2 < 6; x2++) setPixel(n, x2, y2, 170, 140, 88);
+          for (var x3 = 9; x3 < 11; x3++) setPixel(n, x3, y2, 170, 140, 88);
+        }
+        if (!isUpper) {
+          setPixel(n, 13, 8, 55, 38, 18);
+          setPixel(n, 13, 9, 55, 38, 18);
+        }
+      };
       var textures = {
+        oakDoorLower: function(n) { drawDoorTexture(n, "oakPlanks", false); },
+        oakDoorUpper: function(n) { drawDoorTexture(n, "oakPlanks", true); },
+        spruceDoorLower: function(n) { drawDoorTexture(n, "sprucePlanks", false); },
+        spruceDoorUpper: function(n) { drawDoorTexture(n, "sprucePlanks", true); },
+        birchDoorLower: function(n) { drawDoorTexture(n, "birchPlanks", false); },
+        birchDoorUpper: function(n) { drawDoorTexture(n, "birchPlanks", true); },
+        jungleDoorLower: function(n) { drawDoorTexture(n, "junglePlanks", false); },
+        jungleDoorUpper: function(n) { drawDoorTexture(n, "junglePlanks", true); },
+        acaciaDoorLower: function(n) { drawDoorTexture(n, "acaciaPlanks", false); },
+        acaciaDoorUpper: function(n) { drawDoorTexture(n, "acaciaPlanks", true); },
+        darkOakDoorLower: function(n) { drawDoorTexture(n, "darkOakPlanks", false); },
+        darkOakDoorUpper: function(n) { drawDoorTexture(n, "darkOakPlanks", true); },
         grassTop: function(n) {
           var r = 0,
             g = 0,
@@ -564,6 +609,96 @@ Controls:
         },
         {
           name: "sponge"
+        },
+        {
+          name: "oakStairs",
+          textures: "oakPlanks",
+          transparent: true
+        },
+        {
+          name: "oakSlab",
+          textures: "oakPlanks",
+          transparent: true
+        },
+        {
+          name: "oakDoor",
+          textures: "oakPlanks",
+          transparent: true
+        },
+        {
+          name: "spruceStairs",
+          textures: "sprucePlanks",
+          transparent: true
+        },
+        {
+          name: "spruceSlab",
+          textures: "sprucePlanks",
+          transparent: true
+        },
+        {
+          name: "spruceDoor",
+          textures: "sprucePlanks",
+          transparent: true
+        },
+        {
+          name: "birchStairs",
+          textures: "birchPlanks",
+          transparent: true
+        },
+        {
+          name: "birchSlab",
+          textures: "birchPlanks",
+          transparent: true
+        },
+        {
+          name: "birchDoor",
+          textures: "birchPlanks",
+          transparent: true
+        },
+        {
+          name: "jungleStairs",
+          textures: "junglePlanks",
+          transparent: true
+        },
+        {
+          name: "jungleSlab",
+          textures: "junglePlanks",
+          transparent: true
+        },
+        {
+          name: "jungleDoor",
+          textures: "junglePlanks",
+          transparent: true
+        },
+        {
+          name: "acaciaStairs",
+          textures: "acaciaPlanks",
+          transparent: true
+        },
+        {
+          name: "acaciaSlab",
+          textures: "acaciaPlanks",
+          transparent: true
+        },
+        {
+          name: "acaciaDoor",
+          textures: "acaciaPlanks",
+          transparent: true
+        },
+        {
+          name: "darkOakStairs",
+          textures: "darkOakPlanks",
+          transparent: true
+        },
+        {
+          name: "darkOakSlab",
+          textures: "darkOakPlanks",
+          transparent: true
+        },
+        {
+          name: "darkOakDoor",
+          textures: "darkOakPlanks",
+          transparent: true
         }
       ];
       (function() {
@@ -591,6 +726,198 @@ Controls:
           data.shadow = data.shadow !== undefined ? data.shadow : true;
         }
       })();
+      var blockMetadata = {};
+      var customIds = {};
+      var customSideNames = ["top", "bottom", "north", "south", "east", "west"];
+      var customSideNormals = [[0, -1, 0], [0, 1, 0], [0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0]];
+      function getCustomBoxes(id, x2, y2, z2) {
+        var info = customIds[id];
+        if (!info) return null;
+        var meta = blockMetadata[x2 + "," + y2 + "," + z2] || 0;
+        if (info.type === "slab") {
+          if (meta === 1) return [{ box: [-0.5, -0.5, -0.5, 0.5, 0, 0.5], skip: [] }];
+          return [{ box: [-0.5, 0, -0.5, 0.5, 0.5, 0.5], skip: [] }];
+        }
+        if (info.type === "log") {
+          return [{ box: [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], skip: [] }];
+        }
+        if (info.type === "stairs") {
+          var dir = meta & 3;
+          if (dir === 0) return [{ box: [-0.5, 0, -0.5, 0.5, 0.5, 0], skip: [2] }, { box: [-0.5, -0.5, 0, 0.5, 0.5, 0.5], skip: [3] }];
+          if (dir === 1) return [{ box: [-0.5, 0, -0.5, 0, 0.5, 0.5], skip: [4] }, { box: [0, -0.5, -0.5, 0.5, 0.5, 0.5], skip: [5] }];
+          if (dir === 2) return [{ box: [-0.5, 0, 0, 0.5, 0.5, 0.5], skip: [3] }, { box: [-0.5, -0.5, -0.5, 0.5, 0.5, 0], skip: [2] }];
+          return [{ box: [0, 0, -0.5, 0.5, 0.5, 0.5], skip: [5] }, { box: [-0.5, -0.5, -0.5, 0, 0.5, 0.5], skip: [4] }];
+        }
+        if (info.type === "door") {
+          var facing = meta & 3;
+          var open = (meta >> 2) & 1;
+          var T = 0.1875;
+          var b;
+          if (!open) {
+            if (facing === 0) b = [-0.5, -0.5, -0.5, 0.5, 0.5, -0.5 + T];
+            else if (facing === 1) b = [-0.5, -0.5, -0.5, -0.5 + T, 0.5, 0.5];
+            else if (facing === 2) b = [-0.5, -0.5, 0.5 - T, 0.5, 0.5, 0.5];
+            else b = [0.5 - T, -0.5, -0.5, 0.5, 0.5, 0.5];
+          } else {
+            if (facing === 0 || facing === 2) b = [-0.5, -0.5, -0.5, -0.5 + T, 0.5, 0.5];
+            else b = [-0.5, -0.5, -0.5, 0.5, 0.5, -0.5 + T];
+          }
+          return [{ box: b, skip: [] }];
+        }
+        return null;
+      }
+      function getCustomTexKeys(id, x2, y2, z2, tex) {
+        var info = customIds[id];
+        var meta = blockMetadata[x2 + "," + y2 + "," + z2] || 0;
+        var keys = tex;
+        if (info.type === "log") {
+          keys = tex.slice();
+          var axis = meta & 3;
+          var topKey = tex[0];
+          var sideKey = tex[2];
+          if (axis === 0) {
+            keys[0] = topKey; keys[1] = topKey;
+            keys[2] = sideKey; keys[3] = sideKey; keys[4] = sideKey; keys[5] = sideKey;
+          } else if (axis === 1) {
+            keys[4] = topKey; keys[5] = topKey;
+          } else {
+            keys[2] = topKey; keys[3] = topKey;
+          }
+        } else if (info.type === "door") {
+          keys = tex.slice();
+          var doorTex = (meta & 8) ? info.doorTexUpper : info.doorTexLower;
+          var dfacing = meta & 3;
+          var dopen = (meta >> 2) & 1;
+          if ((dfacing === 0 || dfacing === 2) !== !!dopen) {
+            keys[2] = doorTex; keys[3] = doorTex;
+          } else {
+            keys[4] = doorTex; keys[5] = doorTex;
+          }
+        }
+        return keys;
+      }
+      function emitCustomBox(barray, index, id, x, y, z, x2, y2, z2, blocks, gShadows, tCoords, tmap, sedgeVerts, box, texKeys, skip) {
+        for (var s = 0; s < 6; s++) {
+          if (skip && skip.indexOf(s) !== -1) continue;
+          var verts = sedgeVerts[s];
+          var flush = false;
+          if (s === 0) flush = box[1] <= -0.499;
+          else if (s === 1) flush = box[4] >= 0.499;
+          else if (s === 2) flush = box[5] >= 0.499;
+          else if (s === 3) flush = box[2] <= -0.499;
+          else if (s === 4) flush = box[3] >= 0.499;
+          else flush = box[0] <= -0.499;
+          if (flush) {
+            var nb = world.getBlock(x2 + customSideNormals[s][0], y2 + customSideNormals[s][1], z2 + customSideNormals[s][2]);
+            if (nb && (nb === id || (!customIds[nb] && blockData[nb] && !blockData[nb].transparent))) {
+              continue;
+            }
+          }
+          var q = [];
+          for (var c = 0; c < 4; c++) {
+            var vx = verts[c * 3];
+            var vy = verts[c * 3 + 1];
+            var vz = verts[c * 3 + 2];
+            if (vx < box[0]) vx = box[0]; else if (vx > box[3]) vx = box[3];
+            if (vy < box[1]) vy = box[1]; else if (vy > box[4]) vy = box[4];
+            if (vz < box[2]) vz = box[2]; else if (vz > box[5]) vz = box[5];
+            q.push(vx, vy, vz);
+          }
+          if (q[0] === q[3] && q[1] === q[4] && q[2] === q[5] && q[6] === q[9] && q[7] === q[10] && q[8] === q[11]) {
+            continue;
+          }
+          var shadows = gShadows[customSideNames[s]](x, y, z, blocks);
+          var texVerts = tCoords[tmap[texKeys[s]]];
+          for (var c2 = 0; c2 < 4; c2++) {
+            barray[index] = q[c2 * 3] + x2;
+            barray[index + 1] = q[c2 * 3 + 1] + y2;
+            barray[index + 2] = q[c2 * 3 + 2] + z2;
+            barray[index + 3] = texVerts[c2 * 2];
+            barray[index + 4] = texVerts[c2 * 2 + 1];
+            barray[index + 5] = shadows[c2];
+            index += 6;
+          }
+        }
+        return index;
+      }
+      function genCustomBlockMesh(barray, index, id, x, y, z, x2, y2, z2, blocks, gShadows, tCoords, tmap, sedgeVerts) {
+        var boxes = getCustomBoxes(id, x2, y2, z2);
+        if (!boxes) return index;
+        var texKeys = getCustomTexKeys(id, x2, y2, z2, blockData[id].textures);
+        for (var b = 0; b < boxes.length; b++) {
+          index = emitCustomBox(barray, index, id, x, y, z, x2, y2, z2, blocks, gShadows, tCoords, tmap, sedgeVerts, boxes[b].box, texKeys, boxes[b].skip);
+        }
+        return index;
+      }
+      function getBlockCollisionBoxes(bx, by, bz) {
+        var id = world ? world.getBlock(bx, by, bz) : 0;
+        if (!id || !customIds[id]) {
+          return [[bx, by, bz, 1, 1, 1]];
+        }
+        var boxes = getCustomBoxes(id, bx, by, bz);
+        if (!boxes) return [[bx, by, bz, 1, 1, 1]];
+        var out = [];
+        for (var i = 0; i < boxes.length; i++) {
+          var b = boxes[i].box;
+          out.push([bx + (b[0] + b[3]) / 2, by + (b[1] + b[4]) / 2, bz + (b[2] + b[5]) / 2, b[3] - b[0], b[4] - b[1], b[5] - b[2]]);
+        }
+        return out;
+      }
+      function computePlacementMeta(blockVal, pos, face) {
+        var info = customIds[blockVal];
+        var dx = -Math.sin(p.ry);
+        var dz = Math.cos(p.ry);
+        if (info.type === "slab") {
+          if (face === "top") return 0;
+          if (face === "bottom") return 1;
+          return p.y < pos[1] ? 0 : 1;
+        }
+        if (info.type === "log") {
+          if (face === "top" || face === "bottom") return 0;
+          if (face === "north" || face === "south") return 2;
+          return 1;
+        }
+        return Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 0 : 2);
+      }
+      function placeDoorUpper(x, y, z, id, meta) {
+        if (world.getBlock(x, y - 1, z) !== 0) return;
+        world.setBlock(x, y - 1, z, id);
+        var okey = x + "," + (y - 1) + "," + z;
+        blockChanges[okey] = id;
+        blockMetadata[okey] = meta | 8;
+        updateChunkBlockMapSingle(x, y - 1, z, id);
+      }
+      function removeDoorPair(x, y, z, id) {
+        var meta = blockMetadata[x + "," + y + "," + z] || 0;
+        var oy = (meta & 8) ? y + 1 : y - 1;
+        if (world.getBlock(x, oy, z) === id) {
+          world.setBlock(x, oy, z, 0);
+          var okey = x + "," + oy + "," + z;
+          blockChanges[okey] = 0;
+          delete blockMetadata[okey];
+          updateChunkBlockMapSingle(x, oy, z, 0);
+        }
+      }
+      var toggleDoor = function() {
+        if (!hitBox.pos) return;
+        var x = hitBox.pos[0];
+        var y = hitBox.pos[1];
+        var z = hitBox.pos[2];
+        var id = world.getBlock(x, y, z);
+        if (!customIds[id] || customIds[id].type !== "door") return;
+        var key = x + "," + y + "," + z;
+        var meta = blockMetadata[key] || 0;
+        var oy = (meta & 8) ? y + 1 : y - 1;
+        var otherId = world.getBlock(x, oy, z);
+        if (customIds[otherId] && customIds[otherId].type === "door") {
+          var okey = x + "," + oy + "," + z;
+          var om = blockMetadata[okey] || 0;
+          blockMetadata[okey] = om ^ 4;
+          world.setBlock(x, oy, z, otherId);
+        }
+        blockMetadata[key] = meta ^ 4;
+        world.setBlock(x, y, z, id);
+      };
       var win = window;
       var doc = document;
       var console = window.console;
@@ -1006,6 +1333,29 @@ Controls:
         blockData.forEach(function(block) {
           blockIds[block.name] = block.id;
         });
+        (function() {
+          var defs = [
+            ["oakLog", "log"], ["acaciaLog", "log"], ["birchLog", "log"], ["darkOakLog", "log"], ["jungleLog", "log"], ["spruceLog", "log"],
+            ["oakStairs", "stairs"], ["spruceStairs", "stairs"], ["birchStairs", "stairs"], ["jungleStairs", "stairs"], ["acaciaStairs", "stairs"], ["darkOakStairs", "stairs"],
+            ["oakSlab", "slab"], ["spruceSlab", "slab"], ["birchSlab", "slab"], ["jungleSlab", "slab"], ["acaciaSlab", "slab"], ["darkOakSlab", "slab"],
+            ["oakDoor", "door", "oakDoorLower", "oakDoorUpper"],
+            ["spruceDoor", "door", "spruceDoorLower", "spruceDoorUpper"],
+            ["birchDoor", "door", "birchDoorLower", "birchDoorUpper"],
+            ["jungleDoor", "door", "jungleDoorLower", "jungleDoorUpper"],
+            ["acaciaDoor", "door", "acaciaDoorLower", "acaciaDoorUpper"],
+            ["darkOakDoor", "door", "darkOakDoorLower", "darkOakDoorUpper"]
+          ];
+          for (var i = 0; i < defs.length; i++) {
+            var cid = blockIds[defs[i][0]];
+            if (cid === undefined) continue;
+            var entry = { type: defs[i][1] };
+            if (defs[i][1] === "door") {
+              entry.doorTexLower = defs[i][2];
+              entry.doorTexUpper = defs[i][3];
+            }
+            customIds[cid] = entry;
+          }
+        })();
         var currentFov, targetFov, fovTime;
         var renderDistance;
         var generatedChunks;
@@ -1418,9 +1768,31 @@ Controls:
         for (var i = 1; i < blockData.length; i++) {
           var data = [];
           var block = blockData[i];
+          var iconShape = customIds[i] ? customIds[i].type : null;
           for (var j = 0; j < 12; j++) {
-            data.push(hexagonVerts[j * 3 + 0] * scale);
-            data.push(hexagonVerts[j * 3 + 1] * scale);
+            var hx = hexagonVerts[j * 3 + 0];
+            var hy = hexagonVerts[j * 3 + 1];
+            if (iconShape === "slab") {
+              if (j < 4) {
+                hy -= 0.5;
+              } else if (hy > 0) {
+                hy -= 0.5;
+              }
+            } else if (iconShape === "door") {
+              var dj = j % 4;
+              if (j < 4) {
+                hx = (dj === 0 || dj === 3) ? -0.5 : 0.5;
+                hy = (dj === 0 || dj === 1) ? 0.95 : 0.85;
+              } else if (j < 8) {
+                hx = (dj === 0 || dj === 3) ? -0.55 : 0.55;
+                hy = (dj === 0 || dj === 1) ? 0.9 : -0.9;
+              } else {
+                hx = (dj === 0 || dj === 3) ? -0.45 : 0.65;
+                hy = (dj === 0 || dj === 1) ? 0.9 : -0.9;
+              }
+            }
+            data.push(hx * scale);
+            data.push(hy * scale);
             data.push(0.1666666);
             var faceIdx = Math.floor(j / 4);
             var texKey;
@@ -1444,6 +1816,8 @@ Controls:
               } else {
                 texKey = "grassSide";
               }
+            } else if (customIds[i] && customIds[i].type === "door") {
+              texKey = customIds[i].doorTexLower;
             } else {
               texKey = (block.textures && block.textures.length >= 6)
                 ? (faceIdx === 0 ? block.textures[0] : (faceIdx === 1 ? block.textures[2] : block.textures[3]))
@@ -1979,19 +2353,31 @@ Controls:
         player.x += player.velocity.x * dt;
         for (var i = 0; i < contacts.size; i++) {
           block = cont.array[i];
-          boxCollision(block[0], block[1], block[2], 1, 1, 1, player.velocity.x, 0, 0, dt);
+          var cboxes = getBlockCollisionBoxes(block[0], block[1], block[2]);
+          for (var cb = 0; cb < cboxes.length; cb++) {
+            var cbox = cboxes[cb];
+            boxCollision(cbox[0], cbox[1], cbox[2], cbox[3], cbox[4], cbox[5], player.velocity.x, 0, 0, dt);
+          }
         }
         //Check collisions in the Y direction
         player.y += player.velocity.y * dt;
         for (var i = 0; i < contacts.size; i++) {
           block = cont.array[i];
-          boxCollision(block[0], block[1], block[2], 1, 1, 1, 0, player.velocity.y, 0, dt);
+          var cboxes = getBlockCollisionBoxes(block[0], block[1], block[2]);
+          for (var cb = 0; cb < cboxes.length; cb++) {
+            var cbox = cboxes[cb];
+            boxCollision(cbox[0], cbox[1], cbox[2], cbox[3], cbox[4], cbox[5], 0, player.velocity.y, 0, dt);
+          }
         }
         //Check collisions in the Z direction
         player.z += player.velocity.z * dt;
         for (var i = 0; i < contacts.size; i++) {
           block = cont.array[i];
-          boxCollision(block[0], block[1], block[2], 1, 1, 1, 0, 0, player.velocity.z, dt);
+          var cboxes = getBlockCollisionBoxes(block[0], block[1], block[2]);
+          for (var cb = 0; cb < cboxes.length; cb++) {
+            var cbox = cboxes[cb];
+            boxCollision(cbox[0], cbox[1], cbox[2], cbox[3], cbox[4], cbox[5], 0, 0, player.velocity.z, dt);
+          }
         }
         if (!p.flying) {
           var drag = p.onGround ? 0.5 : 0.85;
@@ -2076,6 +2462,8 @@ Controls:
           if (blockVal && gameMode === 'survival') {
             if (!consumeSelectedItem()) return;
           }
+          var prevCustomId = world.getBlock(pos[0], pos[1], pos[2]);
+          if (!customIds[prevCustomId]) prevCustomId = 0;
           world.setBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2], blockVal);
           var key = pos[0] + "," + pos[1] + "," + pos[2];
           blockChanges[key] = blockVal;
@@ -2089,6 +2477,17 @@ Controls:
             }
           } else if (blockVal === 0) {
             delete furnaceOrientations[key];
+          }
+          if (blockVal === 0) {
+            if (prevCustomId && customIds[prevCustomId].type === "door") {
+              removeDoorPair(pos[0], pos[1], pos[2], prevCustomId);
+            }
+            delete blockMetadata[key];
+          } else if (customIds[blockVal]) {
+            blockMetadata[key] = computePlacementMeta(blockVal, pos, hitBox.face);
+            if (customIds[blockVal].type === "door") {
+              placeDoorUpper(pos[0], pos[1], pos[2], blockVal, blockMetadata[key]);
+            }
           }
           updateChunkBlockMapSingle(pos[0], pos[1], pos[2], blockVal);
           if (isMultiplayer && window.__mcMPBridge && typeof window.__mcMPBridge.localBlockChanged === 'function') {
@@ -2117,6 +2516,7 @@ Controls:
             holdingCount: inventory.holding ? (inventory.holdingCount || 1) : 0,
             blockChanges: blockChanges,
             furnaceOrientations: furnaceOrientations,
+            blockMetadata: blockMetadata,
             droppedItems: droppedItems,
             playerX: p.x,
             playerY: p.y,
@@ -2158,6 +2558,9 @@ Controls:
               if (parsed.furnaceOrientations) {
                 furnaceOrientations = Object.assign({}, parsed.furnaceOrientations);
               }
+              if (parsed.blockMetadata) {
+                blockMetadata = Object.assign({}, parsed.blockMetadata);
+              }
               rebuildChunkBlockMap();
               console.log('ローカルセーブデータをロードしました: ' + saveKey + ' (ブロック変更数: ' + Object.keys(blockChanges).length + ')');
             }
@@ -2168,6 +2571,9 @@ Controls:
                 if (Array.isArray(idbData.droppedItems)) droppedItems = idbData.droppedItems.filter(function(d){ return d && d.id && Date.now() - (d.born || Date.now()) < DROP_LIFETIME; }).slice(0, DROP_MAX_ITEMS).map(function(d){ d.count = Math.max(1, d.count || 1); return d; });
                 if (idbData.furnaceOrientations) {
                   furnaceOrientations = Object.assign({}, idbData.furnaceOrientations);
+                }
+                if (idbData.blockMetadata) {
+                  blockMetadata = Object.assign({}, idbData.blockMetadata);
                 }
                 var currentCount = Object.keys(blockChanges).length;
                 var idbCount = Object.keys(idbData.blockChanges).length;
@@ -2229,6 +2635,9 @@ Controls:
           pos[0] += x;
           pos[1] += y;
           pos[2] += z;
+          if (customIds[holding] && customIds[holding].type === "door" && world.getBlock(pos[0], pos[1] - 1, pos[2])) {
+            return;
+          }
           changeWorldBlock(holding);
         }
       };
@@ -2545,6 +2954,10 @@ Controls:
             x2 = x + this.x;
             y2 = y + this.y;
             z2 = z + this.z;
+            if (customIds[data & 0xff]) {
+              index = genCustomBlockMesh(barray, index, data & 0xff, x, y, z, x2, y2, z2, blocks, gShadows, tCoords, tmap, sedgeVerts);
+              continue;
+            }
             var texNum = 0;
             for (var n = 0; n < 6; n++) {
               side = blockSides[n];
@@ -3023,6 +3436,11 @@ Controls:
                 releasePointer();
                 updateMobileControls();
                 return;
+              } else if (tb && customIds[tb] && customIds[tb].type === "door") {
+                Key.rightMouse = false;
+                Key.leftMouse = false;
+                toggleDoor();
+                return;
               }
             }
             newWorldBlock();
@@ -3360,7 +3778,7 @@ Controls:
           if (screen === "play" && hitBox.pos) {
             target = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
           }
-          openBtn.style.display = (screen === "play" && (target === 76 || target === 78)) ? "block" : "none";
+          openBtn.style.display = (screen === "play" && (target === 76 || target === 78 || (target && customIds[target] && customIds[target].type === "door"))) ? "block" : "none";
         }
 
         var keyBtns = el.querySelectorAll('[data-key]');
@@ -5226,6 +5644,10 @@ function clickInvFurnace() {
             invView = targetedBlock === 76 ? "craftingTable" : "furnace";
             releasePointer();
             updateMobileControls();
+          } else if (targetedBlock && customIds[targetedBlock] && customIds[targetedBlock].type === "door") {
+            Key.rightMouse = false;
+            Key.leftMouse = false;
+            toggleDoor();
           }
         }, {passive:false});
         var invBtn = root.querySelector('[data-action="inventory"]');
@@ -5319,6 +5741,7 @@ function clickInvFurnace() {
           savedWorldData = null;
           blockChanges = {};
           furnaceOrientations = {};
+          blockMetadata = {};
           pendingBlockChanges = false;
           initEverything();
         }
