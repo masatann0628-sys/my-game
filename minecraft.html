@@ -8,7 +8,7 @@
   <!-- Firebase v12 (モジュール) 初期化スクリプト -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+    import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
     import {
       getFirestore,
       collection,
@@ -35,6 +35,12 @@
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
+    
+    // ログイン状態をブラウザに永続化する設定を追加
+    setPersistence(auth, browserLocalPersistence).catch((error) => {
+      console.error("Persistence error:", error);
+    });
+
     const db = getFirestore(app);
 
     window._firebase = {
