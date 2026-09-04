@@ -736,17 +736,14 @@ Controls:
         var meta = blockMetadata[x2 + "," + y2 + "," + z2] || 0;
         if (info.type === "slab") {
           if (meta === 1) return [{ box: [-0.5, -0.5, -0.5, 0.5, 0, 0.5], skip: [] }];
+          if (meta === 2) return [{ box: [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], skip: [] }];
           return [{ box: [-0.5, 0, -0.5, 0.5, 0.5, 0.5], skip: [] }];
         }
-        if (info.type === "log") {
-          return [{ box: [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], skip: [] }];
-        }
+        if (info.type === "log") return [{ box: [-0.5, -0.5, -0.5, 0.5, 0.5, 0.5], skip: [] }];
         if (info.type === "stairs") {
-          var dir = meta & 3;
-          if (dir === 0) return [{ box: [-0.5, 0, -0.5, 0.5, 0.5, 0], skip: [2] }, { box: [-0.5, -0.5, 0, 0.5, 0.5, 0.5], skip: [3] }];
-          if (dir === 1) return [{ box: [-0.5, 0, -0.5, 0, 0.5, 0.5], skip: [4] }, { box: [0, -0.5, -0.5, 0.5, 0.5, 0.5], skip: [5] }];
-          if (dir === 2) return [{ box: [-0.5, 0, 0, 0.5, 0.5, 0.5], skip: [3] }, { box: [-0.5, -0.5, -0.5, 0.5, 0.5, 0], skip: [2] }];
-          return [{ box: [0, 0, -0.5, 0.5, 0.5, 0.5], skip: [5] }, { box: [-0.5, -0.5, -0.5, 0, 0.5, 0.5], skip: [4] }];
+          var d = meta & 3, lo = meta & 4 ? 0 : -0.5, hi = meta & 4 ? 0.5 : 0, e, t;
+          if (d === 0) { e = [-0.5, lo, -0.5, 0.5, hi, 0]; t = [-0.5, -0.5, 0, 0.5, 0.5, 0.5]; } else if (d === 1) { e = [-0.5, lo, -0.5, 0, hi, 0.5]; t = [0, -0.5, -0.5, 0.5, 0.5, 0.5]; } else if (d === 2) { e = [-0.5, lo, 0, 0.5, hi, 0.5]; t = [-0.5, -0.5, -0.5, 0.5, 0.5, 0]; } else { e = [0, lo, -0.5, 0.5, hi, 0.5]; t = [-0.5, -0.5, -0.5, 0, 0.5, 0.5]; }
+          return [{ box: e, skip: [[2, 4, 3, 5][d]] }, { box: t, skip: [] }];
         }
         if (info.type === "door") {
           var facing = meta & 3;
@@ -867,29 +864,23 @@ Controls:
         var info = customIds[blockVal];
         var dx = -Math.sin(p.ry);
         var dz = Math.cos(p.ry);
-        if (info.type === "slab") {
-          if (face === "top") return 0;
-          if (face === "bottom") return 1;
-          return p.y < pos[1] ? 0 : 1;
-        }
-        if (info.type === "log") {
-          if (face === "top" || face === "bottom") return 0;
-          if (face === "north" || face === "south") return 2;
-          return 1;
-        }
-        return Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 0 : 2);
+        var look = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 0 : 2);
+        if (info.type === "slab") return face === "top" ? 0 : face === "bottom" ? 1 : p.y < pos[1] ? 1 : 0;
+        if (info.type === "log") return face === "top" || face === "bottom" ? 0 : face === "north" || face === "south" ? 2 : 1;
+        if (info.type === "stairs") return face === "top" ? 4 | look : face === "north" ? 2 : face === "south" ? 0 : face === "east" ? 3 : face === "west" ? 1 : look;
+        return look;
       }
       function placeDoorUpper(x, y, z, id, meta) {
-        if (world.getBlock(x, y - 1, z) !== 0) return;
-        world.setBlock(x, y - 1, z, id);
-        var okey = x + "," + (y - 1) + "," + z;
+        if (world.getBlock(x, y + 1, z) !== 0) return;
+        world.setBlock(x, y + 1, z, id);
+        var okey = x + "," + (y + 1) + "," + z;
         blockChanges[okey] = id;
         blockMetadata[okey] = meta | 8;
-        updateChunkBlockMapSingle(x, y - 1, z, id);
+        updateChunkBlockMapSingle(x, y + 1, z, id);
       }
       function removeDoorPair(x, y, z, id) {
         var meta = blockMetadata[x + "," + y + "," + z] || 0;
-        var oy = (meta & 8) ? y + 1 : y - 1;
+        var oy = (meta & 8) ? y - 1 : y + 1;
         if (world.getBlock(x, oy, z) === id) {
           world.setBlock(x, oy, z, 0);
           var okey = x + "," + oy + "," + z;
@@ -907,7 +898,7 @@ Controls:
         if (!customIds[id] || customIds[id].type !== "door") return;
         var key = x + "," + y + "," + z;
         var meta = blockMetadata[key] || 0;
-        var oy = (meta & 8) ? y + 1 : y - 1;
+        var oy = (meta & 8) ? y - 1 : y + 1;
         var otherId = world.getBlock(x, oy, z);
         if (customIds[otherId] && customIds[otherId].type === "door") {
           var okey = x + "," + oy + "," + z;
@@ -1773,11 +1764,9 @@ Controls:
             var hx = hexagonVerts[j * 3 + 0];
             var hy = hexagonVerts[j * 3 + 1];
             if (iconShape === "slab") {
-              if (j < 4) {
-                hy -= 0.5;
-              } else if (hy > 0) {
-                hy -= 0.5;
-              }
+              if (j < 4 || hy > 0) hy -= 0.5;
+            } else if (iconShape === "stairs") {
+              if (j === 1 || j === 5) hy -= 0.5;
             } else if (iconShape === "door") {
               var dj = j % 4;
               if (j < 4) {
@@ -2284,30 +2273,24 @@ Controls:
         }
       }
       var inBox = function(x, y, z, w, h, d) {
-        var iy = y - h / 2 - p.topH;
-        var ih = h + p.bottomH + p.topH;
-        var ix = x - w / 2 - p.w;
-        var iw = w + p.w * 2;
-        var iz = z - d / 2 - p.w;
-        var id = d + p.w * 2;
-        return (p.x > ix && p.y > iy && p.z > iz && p.x < ix + iw && p.y < iy + ih && p.z < iz + id);
+        var ix = x - w / 2 - p.w, iw = w + p.w * 2, iz = z - d / 2 - p.w, id = d + p.w * 2, iy = y - h / 2 - p.topH, ih = h + p.bottomH + p.topH;
+        return p.x > ix && p.y > iy && p.z > iz && p.x < ix + iw && p.y < iy + ih && p.z < iz + id;
       };
       var boxCollision = function(x, y, z, w, h, d, vx, vy, vz, dt) {
-        if (inBox(x, y, z, w, h, d)) {
-          if (vx) {
-            p.x -= p.velocity.x * dt;
-            p.velocity.x = 0;
-          } else if (vz) {
-            p.z -= p.velocity.z * dt;
-            p.velocity.z = 0;
-          } else if (vy > 0) {
-            p.y -= p.velocity.y * dt;
-            p.velocity.y = 0;
-          } else {
-            p.y = (y - h / 2 - p.topH) + (h + p.bottomH + p.topH);
-            p.onGround = true;
-            p.velocity.y = 0;
-          }
+        if (!inBox(x, y, z, w, h, d)) return;
+        var step = (y + h / 2) - (p.y - p.bottomH);
+        if ((vx || vz) && step > 0 && step < 0.6 && p.velocity.y === 0 && !p.flying) {
+          p.y = y + h / 2 + p.bottomH;
+          p.onGround = true;
+          return;
+        }
+        if (vx) { p.x -= p.velocity.x * dt; p.velocity.x = 0; }
+        else if (vz) { p.z -= p.velocity.z * dt; p.velocity.z = 0; }
+        else if (vy > 0) { p.y -= p.velocity.y * dt; p.velocity.y = 0; }
+        else {
+          p.y = (y - h / 2 - p.topH) + (h + p.bottomH + p.topH);
+          p.onGround = true;
+          p.velocity.y = 0;
         }
       };
       var contacts = {
@@ -2455,7 +2438,7 @@ Controls:
         uniformMatrix("view3d", programObject3D, "uView", false, matrix);
         box2(x, y, z, 0xff, blockData[t].textures);
       }
-      var changeWorldBlock = function(t) {
+      var changeWorldBlock = function(t, forceMeta) {
         var pos = hitBox.pos;
         if (pos && pos[1] > 0 && pos[1] < maxHeight) {
           var blockVal = t || 0;
@@ -2484,7 +2467,7 @@ Controls:
             }
             delete blockMetadata[key];
           } else if (customIds[blockVal]) {
-            blockMetadata[key] = computePlacementMeta(blockVal, pos, hitBox.face);
+            blockMetadata[key] = forceMeta !== undefined ? forceMeta : computePlacementMeta(blockVal, pos, hitBox.face);
             if (customIds[blockVal].type === "door") {
               placeDoorUpper(pos[0], pos[1], pos[2], blockVal, blockMetadata[key]);
             }
@@ -2562,7 +2545,7 @@ Controls:
                 blockMetadata = Object.assign({}, parsed.blockMetadata);
               }
               rebuildChunkBlockMap();
-              console.log('ローカルセーブデータをロードしました: ' + saveKey + ' (ブロック変更数: ' + Object.keys(blockChanges).length + ')');
+              console.log('ローカルセ���ブデータをロードしました: ' + saveKey + ' (ブロック変更数: ' + Object.keys(blockChanges).length + ')');
             }
           }
           if (window.indexedDB) {
@@ -2607,35 +2590,19 @@ Controls:
         if (!hitBox.pos || !holding) {
           return;
         }
-        var x = 0,
-          y = 0,
-          z = 0,
-          pos = hitBox.pos;
-        switch (hitBox.face) {
-          case "top":
-            y -= 1;
-            break;
-          case "bottom":
-            y += 1;
-            break;
-          case "south":
-            z -= 1;
-            break;
-          case "north":
-            z += 1;
-            break;
-          case "west":
-            x -= 1;
-            break;
-          case "east":
-            x += 1;
-            break;
+        var x = 0, y = 0, z = 0, pos = hitBox.pos;
+        var o = { top: [0, -1, 0], bottom: [0, 1, 0], south: [0, 0, -1], north: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0] }[hitBox.face];
+        if (o) { x = o[0]; y = o[1]; z = o[2]; }
+        var tid = world.getBlock(pos[0], pos[1], pos[2]), tkey = pos[0] + "," + pos[1] + "," + pos[2];
+        if (customIds[holding] && customIds[holding].type === "slab" && tid === holding && (blockMetadata[tkey] || 0) !== 2 && !inBox(pos[0], pos[1], pos[2], 1, 1, 1)) {
+          changeWorldBlock(holding, 2);
+          return;
         }
         if (!inBox(pos[0] + x, pos[1] + y, pos[2] + z, 1, 1, 1)) {
           pos[0] += x;
           pos[1] += y;
           pos[2] += z;
-          if (customIds[holding] && customIds[holding].type === "door" && world.getBlock(pos[0], pos[1] - 1, pos[2])) {
+          if (customIds[holding] && customIds[holding].type === "door" && world.getBlock(pos[0], pos[1] + 1, pos[2])) {
             return;
           }
           changeWorldBlock(holding);
@@ -3451,7 +3418,7 @@ Controls:
           var doneWork = false;
           if (this.meshQueue.length) {
             // ブロック大量設置時に1フレームで全メッシュ再構築するとフリーズするので
-            // 1フレームあたりの再構築数を制限し、残りは後続フレームに分散する
+            // 1フレームあたりの再構築数を制限し、���りは後続フレームに分散する
             var maxRebuild = 4;
             var rebuilt = 0;
             for (var m = 0; m < this.meshQueue.length; m++) {
