@@ -110,27 +110,124 @@ Controls:
             setPixel(n, (i >> 2) & 15, i >> 6, pix[i], pix[i + 1], pix[i + 2], pix[i + 3]);
           }
         }
+        var pals = {
+          oakPlanks:     { f: [80,55,30],    g: [200,220,230], h: [50,35,20],   m: [0,0,0] },
+          sprucePlanks:  { f: [40,28,16],    g: [0,0,0],       h: [65,65,70],   m: [65,65,70] },
+          birchPlanks:   { f: [160,140,100], g: [225,235,240], h: [80,70,50],   m: [0,0,0] },
+          junglePlanks:  { f: [90,55,35],    g: [180,200,170], h: [60,45,30],   m: [70,60,50] },
+          acaciaPlanks:  { f: [120,55,25],   g: [220,200,170], h: [100,50,20],  m: [80,70,60] },
+          darkOakPlanks: { f: [35,22,12],    g: [0,0,0],       h: [212,175,55], m: [60,50,40] }
+        };
+        var p = pals[plankTexKey] || pals.oakPlanks;
+        var fc = p.f, gc = p.g, hc = p.h, mc = p.m;
         for (var x = 0; x < 16; x++) {
-          setPixel(n, x, 0, 96, 68, 36);
-          setPixel(n, x, 15, 96, 68, 36);
-        }
-        for (var y = 0; y < 16; y++) {
-          setPixel(n, 0, y, 96, 68, 36);
-          setPixel(n, 15, y, 96, 68, 36);
+          setPixel(n, x, 0, fc[0], fc[1], fc[2]);
+          setPixel(n, x, 1, fc[0], fc[1], fc[2]);
+          setPixel(n, x, 14, fc[0], fc[1], fc[2]);
+          setPixel(n, x, 15, fc[0], fc[1], fc[2]);
         }
         for (var y = 2; y < 14; y++) {
-          for (var x = 2; x < 14; x++) {
-            var edge = (x === 2 || x === 7 || x === 13 || y === 2 || y === 13);
-            setPixel(n, x, y, edge ? 110 : 150, edge ? 80 : 122, edge ? 46 : 74);
+          setPixel(n, 0, y, fc[0], fc[1], fc[2]);
+          setPixel(n, 1, y, fc[0], fc[1], fc[2]);
+          setPixel(n, 14, y, fc[0], fc[1], fc[2]);
+          setPixel(n, 15, y, fc[0], fc[1], fc[2]);
+        }
+        var hasGlass = gc[0] || gc[1] || gc[2];
+        var hasMetal = mc[0] || mc[1] || mc[2];
+        if (plankTexKey === "sprucePlanks" || plankTexKey === "darkOakPlanks") {
+          if (hasMetal) {
+            for (var mx = 2; mx < 14; mx++) {
+              setPixel(n, mx, 5, mc[0], mc[1], mc[2]);
+              setPixel(n, mx, 10, mc[0], mc[1], mc[2]);
+            }
+            for (var my = 2; my < 14; my++) {
+              setPixel(n, 7, my, mc[0], mc[1], mc[2]);
+              setPixel(n, 8, my, mc[0], mc[1], mc[2]);
+            }
+          }
+          if (plankTexKey === "darkOakPlanks") {
+            for (var py = 4; py < 12; py++) {
+              for (var px = 4; px < 12; px++) {
+                if (px === 4 || px === 11 || py === 4 || py === 11) {
+                  setPixel(n, px, py, Math.min(255, fc[0]*1.4), Math.min(255, fc[1]*1.4), Math.min(255, fc[2]*1.4));
+                }
+              }
+            }
+          }
+        } else if (hasGlass) {
+          if (plankTexKey === "birchPlanks") {
+            for (var y = 3; y < 13; y++) {
+              for (var x = 4; x < 12; x++) {
+                if (x === 4 || x === 11 || y === 3 || y === 12) {
+                  setPixel(n, x, y, fc[0], fc[1], fc[2]);
+                } else {
+                  var d = Math.random() * 0.15 + 0.85;
+                  setPixel(n, x, y, gc[0]*d, gc[1]*d, gc[2]*d);
+                }
+              }
+            }
+          } else if (plankTexKey === "junglePlanks") {
+            for (var y = 4; y < 12; y++) {
+              for (var x = 4; x < 12; x++) {
+                var inArch = (y >= 8) || ((x-7.5)*(x-7.5) + (8-y)*(8-y) <= 10);
+                if (inArch) {
+                  if (x === 4 || x === 11 || y === 11 || (y < 8 && (x === 5 || x === 10))) {
+                    setPixel(n, x, y, fc[0], fc[1], fc[2]);
+                  } else {
+                    var d = Math.random() * 0.2 + 0.8;
+                    setPixel(n, x, y, gc[0]*d, gc[1]*d, gc[2]*d);
+                  }
+                } else {
+                  setPixel(n, x, y, fc[0], fc[1], fc[2]);
+                }
+              }
+            }
+          } else if (plankTexKey === "acaciaPlanks") {
+            for (var y = 3; y < 13; y++) {
+              for (var x = 5; x < 11; x++) {
+                if (x === 5 || x === 10 || y === 3 || y === 7 || y === 12) {
+                  setPixel(n, x, y, fc[0], fc[1], fc[2]);
+                } else {
+                  var d = Math.random() * 0.2 + 0.8;
+                  setPixel(n, x, y, gc[0]*d, gc[1]*d, gc[2]*d);
+                }
+              }
+            }
+          } else {
+            for (var y = 4; y < 12; y++) {
+              for (var x = 4; x < 12; x++) {
+                if (x === 7 || y === 7) {
+                  setPixel(n, x, y, fc[0], fc[1], fc[2]);
+                } else {
+                  var d = Math.random() * 0.2 + 0.8;
+                  setPixel(n, x, y, gc[0]*d, gc[1]*d, gc[2]*d);
+                }
+              }
+            }
+          }
+        } else {
+          for (var y = 4; y < 12; y++) {
+            for (var x = 4; x < 12; x++) {
+              if (x === 4 || x === 11 || y === 4 || y === 11) {
+                setPixel(n, x, y, fc[0], fc[1], fc[2]);
+              }
+            }
           }
         }
-        for (var y2 = 4; y2 < 12; y2++) {
-          for (var x2 = 4; x2 < 6; x2++) setPixel(n, x2, y2, 170, 140, 88);
-          for (var x3 = 9; x3 < 11; x3++) setPixel(n, x3, y2, 170, 140, 88);
-        }
         if (!isUpper) {
-          setPixel(n, 13, 8, 55, 38, 18);
-          setPixel(n, 13, 9, 55, 38, 18);
+          if (plankTexKey === "sprucePlanks") {
+            for (var ry = 6; ry < 10; ry++) {
+              for (var rx = 6; rx < 10; rx++) {
+                var edge = (rx === 6 || rx === 9 || ry === 6 || ry === 9);
+                setPixel(n, rx, ry, edge ? hc[0] : hc[0]*0.6, edge ? hc[1] : hc[1]*0.6, edge ? hc[2] : hc[2]*0.6);
+              }
+            }
+          } else {
+            setPixel(n, 12, 7, hc[0], hc[1], hc[2]);
+            setPixel(n, 12, 8, hc[0], hc[1], hc[2]);
+            setPixel(n, 13, 7, hc[0], hc[1], hc[2]);
+            setPixel(n, 13, 8, hc[0], hc[1], hc[2]);
+          }
         }
       };
       var textures = {
@@ -825,12 +922,24 @@ Controls:
           }
           var shadows = gShadows[customSideNames[s]](x, y, z, blocks);
           var texVerts = tCoords[tmap[texKeys[s]]];
+          var tu0 = texVerts[2];
+          var tv0 = texVerts[1];
           for (var c2 = 0; c2 < 4; c2++) {
-            barray[index] = q[c2 * 3] + x2;
-            barray[index + 1] = q[c2 * 3 + 1] + y2;
-            barray[index + 2] = q[c2 * 3 + 2] + z2;
-            barray[index + 3] = texVerts[c2 * 2];
-            barray[index + 4] = texVerts[c2 * 2 + 1];
+            var cvx = q[c2 * 3];
+            var cvy = q[c2 * 3 + 1];
+            var cvz = q[c2 * 3 + 2];
+            var uOff, vOff;
+            if (s === 0) { uOff = 0.5 - cvx; vOff = cvz + 0.5; }
+            else if (s === 1) { uOff = 0.5 - cvz; vOff = cvx + 0.5; }
+            else if (s === 2) { uOff = cvx + 0.5; vOff = 0.5 - cvy; }
+            else if (s === 3) { uOff = 0.5 - cvx; vOff = 0.5 - cvy; }
+            else if (s === 4) { uOff = 0.5 - cvz; vOff = 0.5 - cvy; }
+            else { uOff = cvz + 0.5; vOff = 0.5 - cvy; }
+            barray[index] = cvx + x2;
+            barray[index + 1] = cvy + y2;
+            barray[index + 2] = cvz + z2;
+            barray[index + 3] = tu0 + uOff * 0.0625;
+            barray[index + 4] = tv0 + vOff * 0.0625;
             barray[index + 5] = shadows[c2];
             index += 6;
           }
@@ -1742,6 +1851,7 @@ Controls:
       ];
       var hexagonVerts;
       var blockIcons;
+      var blockIconCounts;
       (function() {
         var side = Math.sqrt(3) / 2;
         hexagonVerts = newFloat32Array([
@@ -1753,6 +1863,7 @@ Controls:
 
       function genIcons() {
         blockIcons = [null];
+        blockIconCounts = [0];
         var texOrder = [1, 2, 2];
         var shadows = [1, 0.4, 0.7];
         var scale = 0.16 / height * inventory.size;
@@ -1760,13 +1871,153 @@ Controls:
           var data = [];
           var block = blockData[i];
           var iconShape = customIds[i] ? customIds[i].type : null;
+          if (iconShape === "stairs") {
+  var stairTex = typeof block.textures === "string"
+    ? block.textures
+    : ((block.textures && block.textures.length) ? block.textures[0] : block.name);
+  // 他のブロックと同じ等角投影で描き、大きさ・形を通常ブロックに揃える
+  var sSide = Math.sqrt(3) / 2;
+  var stairQuads = [
+
+  // =========================================
+  // ① 上段の上面
+  // =========================================
+  [
+    [-0.5, 0.5, -0.5],
+    [ 0.5, 0.5, -0.5],
+    [ 0.5, 0.5,  0.0],
+    [-0.5, 0.5,  0.0],
+    1.0
+  ],
+
+  // =========================================
+  // ② 下段の上面
+  // =========================================
+  [
+    [-0.5, 0.0, 0.0],
+    [ 0.5, 0.0, 0.0],
+    [ 0.5, 0.0, 0.5],
+    [-0.5, 0.0, 0.5],
+    1.0
+  ],
+
+  // =========================================
+  // ③ 段差の立ち上がり
+  // =========================================
+  [
+    [-0.5, 0.0, 0.0],
+    [-0.5, 0.5, 0.0],
+    [ 0.5, 0.5, 0.0],
+    [ 0.5, 0.0, 0.0],
+    0.7
+  ],
+
+  // =========================================
+  // ④ 手前の面
+  // =========================================
+  [
+    [-0.5, -0.5, 0.5],
+    [-0.5,  0.0, 0.5],
+    [ 0.5,  0.0, 0.5],
+    [ 0.5, -0.5, 0.5],
+    0.7
+  ],
+
+  // =========================================
+  // ⑤ 右側面・上段
+  // =========================================
+  [
+    [0.5, 0.0, -0.5],
+    [0.5, 0.5, -0.5],
+    [0.5, 0.5,  0.0],
+    [0.5, 0.0,  0.0],
+    0.4
+  ],
+
+  // =========================================
+  // ⑥ 右側面・下段
+  // =========================================
+  [
+    [0.5, -0.5, -0.5],
+    [0.5,  0.0, -0.5],
+    [0.5,  0.0,  0.5],
+    [0.5, -0.5,  0.5],
+    0.4
+  ],
+
+  // =========================================
+// ⑦ 左側面・上段
+// =========================================
+[
+  [-0.5, 0.5,  0.0],
+  [-0.5, 0.0,  0.0],
+  [-0.5, 0.0, -0.5],
+  [-0.5, 0.5, -0.5],
+  0.7
+],
+
+  // =========================================
+// ⑧ 左側面・下段
+// =========================================
+[
+  [-0.5, 0.0,  0.5],
+  [-0.5, -0.5,  0.5],
+  [-0.5, -0.5, -0.5],
+  [-0.5, 0.0, -0.5],
+  0.7
+],
+ 
+  // =========================================
+  // ⑨ 奥の面
+  // =========================================
+  [
+    [-0.5, -0.5, -0.5],
+    [-0.5,  0.5, -0.5],
+    [ 0.5,  0.5, -0.5],
+    [ 0.5, -0.5, -0.5],
+    0.55
+  ],
+
+  // =========================================
+  // ⑩ 底面
+  // 透明な穴が見える場合に備えて追加
+  // =========================================
+  [
+    [-0.5, -0.5,  0.5],
+    [-0.5, -0.5, -0.5],
+    [ 0.5, -0.5, -0.5],
+    [ 0.5, -0.5,  0.5],
+    0.45
+  ]
+
+];
+  var sTexVerts = textureCoords[textureMap[stairTex]];
+  for (var sq = 0; sq < stairQuads.length; sq++) {
+    for (var sv = 0; sv < 4; sv++) {
+      var svx = stairQuads[sq][sv][0];
+      var svy = stairQuads[sq][sv][1];
+      var svz = stairQuads[sq][sv][2];
+      // 等角投影: 横 = (x - z) × √3/2、縦 = y - (x + z)/2
+      data.push((svx - svz) * sSide * scale);
+      data.push((svy - (svx + svz) * 0.5) * scale);
+      data.push(0.1666666);
+      data.push(sTexVerts[sv * 2]);        // テクスチャ座標U
+      data.push(sTexVerts[sv * 2 + 1]);   // テクスチャ座標V
+      data.push(stairQuads[sq][4]);       // 面の明るさ（1.0/0.7/0.4）
+    }
+  }
+  var stairBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, stairBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, newFloat32Array(data), gl.STATIC_DRAW);
+  blockIcons.push(stairBuffer);
+  blockIconCounts.push(60);
+  continue;
+}
           for (var j = 0; j < 12; j++) {
             var hx = hexagonVerts[j * 3 + 0];
             var hy = hexagonVerts[j * 3 + 1];
             if (iconShape === "slab") {
               if (j < 4 || hy > 0) hy -= 0.5;
-            } else if (iconShape === "stairs") {
-              if (j === 1 || j === 5) hy -= 0.5;
             } else if (iconShape === "door") {
               var dj = j % 4;
               if (j < 4) {
@@ -1820,6 +2071,7 @@ Controls:
           gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
           gl.bufferData(gl.ARRAY_BUFFER, newFloat32Array(data), gl.STATIC_DRAW);
           blockIcons.push(buffer);
+          blockIconCounts.push(18);
         }
       }
 
@@ -2545,7 +2797,7 @@ Controls:
                 blockMetadata = Object.assign({}, parsed.blockMetadata);
               }
               rebuildChunkBlockMap();
-              console.log('ローカルセ���ブデータをロードしました: ' + saveKey + ' (ブロック変更数: ' + Object.keys(blockChanges).length + ')');
+              console.log('ローカルセ   ブデータをロードしました: ' + saveKey + ' (ブロック変更数: ' + Object.keys(blockChanges).length + ')');
             }
           }
           if (window.indexedDB) {
@@ -2594,20 +2846,35 @@ Controls:
         var o = { top: [0, -1, 0], bottom: [0, 1, 0], south: [0, 0, -1], north: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0] }[hitBox.face];
         if (o) { x = o[0]; y = o[1]; z = o[2]; }
         var tid = world.getBlock(pos[0], pos[1], pos[2]), tkey = pos[0] + "," + pos[1] + "," + pos[2];
+
+        // 同じハーフブロックの結合だけは既存仕様として許可。
         if (customIds[holding] && customIds[holding].type === "slab" && tid === holding && (blockMetadata[tkey] || 0) !== 2 && !inBox(pos[0], pos[1], pos[2], 1, 1, 1)) {
           changeWorldBlock(holding, 2);
           return;
         }
-        if (!inBox(pos[0] + x, pos[1] + y, pos[2] + z, 1, 1, 1)) {
-          pos[0] += x;
-          pos[1] += y;
-          pos[2] += z;
-          if (customIds[holding] && customIds[holding].type === "door" && world.getBlock(pos[0], pos[1] + 1, pos[2])) {
-            return;
-          }
-          changeWorldBlock(holding);
+
+        var tx = pos[0] + x, ty = pos[1] + y, tz = pos[2] + z;
+
+        // 設置先に既存ブロックがある場合は設置不可。
+        if (world.getBlock(tx, ty, tz) !== 0) {
+          return;
         }
+
+        if (inBox(tx, ty, tz, 1, 1, 1)) {
+          return;
+        }
+
+        // ドアは上下2ブロックを使うため、上段も空いている必要がある。
+        if (customIds[holding] && customIds[holding].type === "door" && world.getBlock(tx, ty + 1, tz) !== 0) {
+          return;
+        }
+
+        pos[0] = tx;
+        pos[1] = ty;
+        pos[2] = tz;
+        changeWorldBlock(holding);
       };
+
       var renderedChunks = 0;
 
       function getBlock(x, y, z, blocks) {
@@ -3418,7 +3685,7 @@ Controls:
           var doneWork = false;
           if (this.meshQueue.length) {
             // ブロック大量設置時に1フレームで全メッシュ再構築するとフリーズするので
-            // 1フレームあたりの再構築数を制限し、���りは後続フレームに分散する
+            // 1フレームあたりの再構築数を制限し、   りは後続フレームに分散する
             var maxRebuild = 4;
             var rebuilt = 0;
             for (var m = 0; m < this.meshQueue.length; m++) {
@@ -3921,7 +4188,7 @@ Controls:
         gl.vertexAttribPointer(glCache.locations.aVertex, 3, gl.FLOAT, false, 24, 0);
         gl.vertexAttribPointer(glCache.locations.aTexture, 2, gl.FLOAT, false, 24, 12);
         gl.vertexAttribPointer(glCache.locations.aShadow, 1, gl.FLOAT, false, 24, 20);
-        gl.drawElements(gl.TRIANGLES, 6 * 3, gl.UNSIGNED_INT, 0);
+        gl.drawElements(gl.TRIANGLES, blockIconCounts[id] || 18, gl.UNSIGNED_INT, 0);
       }
 
       function hotbar() {
@@ -5519,6 +5786,12 @@ function clickInvFurnace() {
           invView = "furnace";
           releasePointer();
           updateMobileControls();
+          return;
+        }
+        else if (targetedBlock && customIds[targetedBlock] && customIds[targetedBlock].type === "door") {
+          Key.rightMouse = false;
+          Key.leftMouse = false;
+          toggleDoor();
           return;
         }
       }
