@@ -156,6 +156,8 @@
         var data = snap.data() || {};
         return { roomId: roomId, seed: Number(data.seed) || 123456789 };
       }
+      // Deterministic seed from the room id: every client joining the same server
+      // gets the exact same base terrain, even if they join at different times.
       var seed = 0;
       for (var i = 0; i < roomId.length; i++) seed = (Math.imul(seed, 31) + roomId.charCodeAt(i)) | 0;
       seed = Math.abs(seed) || 123456789;
@@ -279,13 +281,9 @@
 
   <div class="container">
     <div id="main-menu" class="screen">
-      <div class="edition-badge" id="edition-badge" title="Minecraft: HTML Edition" aria-label="HTML EDITION">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 98 14" shape-rendering="crispEdges">
-          <path fill="#000000" d="M2,0h36v1h-36zM40,0h39v1h-39zM80,0h6v1h-6zM87,0h5v1h-5zM93,0h4v1h-4zM2,1h37v1h-37zM40,1h57v1h-57zM4,2h4v1h-4zM10,2h1v1h-1zM19,2h1v1h-1zM22,2h5v1h-5zM29,2h1v1h-1zM32,2h10v1h-10zM50,2h1v1h-1zM58,2h2v1h-2zM64,2h1v1h-1zM73,2h1v1h-1zM78,2h2v1h-2zM85,2h3v1h-3zM90,2h3v1h-3zM95,2h2v1h-2zM5,3h3v1h-3zM10,3h1v1h-1zM19,3h1v1h-1zM23,3h3v1h-3zM29,3h1v1h-1zM33,3h9v1h-9zM50,3h1v1h-1zM59,3h1v1h-1zM64,3h1v1h-1zM73,3h1v1h-1zM78,3h1v1h-1zM86,3h1v1h-1zM91,3h2v1h-2zM95,3h3v1h-3zM5,4h3v1h-3zM10,4h1v1h-1zM19,4h1v1h-1zM24,4h1v1h-1zM29,4h1v1h-1zM33,4h9v1h-9zM50,4h1v1h-1zM59,4h1v1h-1zM64,4h1v1h-1zM73,4h1v1h-1zM92,4h1v1h-1zM95,4h3v1h-3zM10,5h1v1h-1zM19,5h1v1h-1zM22,5h1v1h-1zM26,5h1v1h-1zM29,5h1v1h-1zM33,5h9v1h-9zM50,5h1v1h-1zM59,5h1v1h-1zM64,5h1v1h-1zM73,5h1v1h-1zM96,5h2v1h-2zM10,6h1v1h-1zM19,6h1v1h-1zM23,6h1v1h-1zM25,6h1v1h-1zM29,6h1v1h-1zM33,6h9v1h-9zM50,6h1v1h-1zM59,6h1v1h-1zM64,6h1v1h-1zM73,6h1v1h-1zM96,6h2v1h-2zM5,7h3v1h-3zM10,7h4v1h-4zM16,7h4v1h-4zM23,7h3v1h-3zM29,7h1v1h-1zM33,7h9v1h-9zM47,7h4v1h-4zM53,7h4v1h-4zM59,7h2v1h-2zM63,7h5v1h-5zM70,7h5v1h-5zM77,7h1v1h-1zM82,7h2v1h-2zM96,7h2v1h-2zM5,8h3v1h-3zM10,8h4v1h-4zM16,8h4v1h-4zM23,8h3v1h-3zM29,8h1v1h-1zM37,8h2v1h-2zM40,8h2v1h-2zM50,8h1v1h-1zM59,8h1v1h-1zM64,8h4v1h-4zM70,8h4v1h-4zM96,8h2v1h-2zM5,9h3v1h-3zM10,9h4v1h-4zM16,9h4v1h-4zM23,9h3v1h-3zM29,9h1v1h-1zM37,9h2v1h-2zM40,9h2v1h-2zM50,9h1v1h-1zM59,9h1v1h-1zM64,9h4v1h-4zM70,9h4v1h-4zM96,9h2v1h-2zM10,10h4v1h-4zM16,10h4v1h-4zM29,10h1v1h-1zM37,10h2v1h-2zM40,10h2v1h-2zM50,10h1v1h-1zM59,10h1v1h-1zM64,10h4v1h-4zM70,10h4v1h-4zM86,10h1v1h-1zM91,10h2v1h-2zM96,10h2v1h-2zM5,11h2v1h-2zM10,11h4v1h-4zM16,11h4v1h-4zM23,11h3v1h-3zM29,11h1v1h-1zM37,11h2v1h-2zM40,11h2v1h-2zM50,11h1v1h-1zM58,11h2v1h-2zM64,11h4v1h-4zM70,11h4v1h-4zM78,11h2v1h-2zM85,11h2v1h-2zM91,11h3v1h-3zM96,11h2v1h-2zM2,12h37v1h-37zM40,12h58v1h-58zM2,13h4v1h-4zM7,13h3v1h-3zM13,13h4v1h-4zM20,13h3v1h-3zM26,13h3v1h-3zM31,13h8v1h-8zM40,13h18v1h-18zM59,13h6v1h-6zM67,13h4v1h-4zM73,13h5v1h-5zM79,13h6v1h-6zM86,13h6v1h-6zM93,13h5v1h-5z" />
-          <path fill="#595558" d="M4,3h1v1h-1zM32,3h1v1h-1zM87,3h1v1h-1zM4,4h1v1h-1zM11,4h3v1h-3zM16,4h3v1h-3zM32,4h1v1h-1zM44,4h6v1h-6zM53,4h4v1h-4zM60,4h1v1h-1zM63,4h1v1h-1zM65,4h3v1h-3zM70,4h3v1h-3zM74,4h1v1h-1zM77,4h2v1h-2zM81,4h3v1h-3zM87,4h1v1h-1zM11,5h3v1h-3zM16,5h3v1h-3zM32,5h1v1h-1zM47,5h3v1h-3zM53,5h4v1h-4zM60,5h1v1h-1zM63,5h1v1h-1zM65,5h3v1h-3zM70,5h3v1h-3zM74,5h1v1h-1zM77,5h2v1h-2zM81,5h4v1h-4zM87,5h1v1h-1zM11,6h3v1h-3zM16,6h3v1h-3zM22,6h1v1h-1zM26,6h1v1h-1zM32,6h1v1h-1zM47,6h3v1h-3zM53,6h4v1h-4zM60,6h1v1h-1zM63,6h1v1h-1zM65,6h3v1h-3zM70,6h3v1h-3zM74,6h1v1h-1zM77,6h2v1h-2zM81,6h4v1h-4zM87,6h1v1h-1zM91,6h1v1h-1zM4,7h1v1h-1zM22,7h1v1h-1zM26,7h1v1h-1zM32,7h1v1h-1zM44,7h3v1h-3zM78,7h1v1h-1zM84,7h1v1h-1zM87,7h2v1h-2zM91,7h2v1h-2zM4,8h1v1h-1zM22,8h1v1h-1zM26,8h1v1h-1zM78,8h1v1h-1zM87,8h2v1h-2zM91,8h3v1h-3zM4,9h1v1h-1zM22,9h1v1h-1zM26,9h1v1h-1zM58,9h1v1h-1zM78,9h2v1h-2zM86,9h3v1h-3zM91,9h3v1h-3zM2,10h8v1h-8zM14,10h2v1h-2zM20,10h9v1h-9zM30,10h7v1h-7zM42,10h8v1h-8zM51,10h8v1h-8zM60,10h4v1h-4zM68,10h2v1h-2zM74,10h12v1h-12zM87,10h4v1h-4zM93,10h3v1h-3zM2,11h3v1h-3zM7,11h3v1h-3zM14,11h2v1h-2zM20,11h3v1h-3zM26,11h3v1h-3zM30,11h7v1h-7zM42,11h8v1h-8zM51,11h7v1h-7zM60,11h4v1h-4zM68,11h2v1h-2zM74,11h4v1h-4zM80,11h5v1h-5zM87,11h4v1h-4zM94,11h2v1h-2z" />
-          <path fill="#aba19e" d="M88,5h1v1h-1zM95,5h1v1h-1zM88,6h1v1h-1zM95,6h1v1h-1zM79,8h1v1h-1zM80,9h1v1h-1z" />
-          <path fill="#e1dcd7" d="M2,2h2v1h-2zM8,2h2v1h-2zM11,2h8v1h-8zM20,2h2v1h-2zM27,2h2v1h-2zM30,2h2v1h-2zM42,2h8v1h-8zM51,2h7v1h-7zM60,2h4v1h-4zM65,2h8v1h-8zM74,2h4v1h-4zM80,2h5v1h-5zM88,2h2v1h-2zM93,2h2v1h-2zM2,3h2v1h-2zM8,3h2v1h-2zM11,3h8v1h-8zM20,3h3v1h-3zM26,3h3v1h-3zM30,3h2v1h-2zM42,3h8v1h-8zM51,3h8v1h-8zM60,3h4v1h-4zM65,3h8v1h-8zM74,3h4v1h-4zM79,3h7v1h-7zM88,3h3v1h-3zM93,3h2v1h-2zM2,4h2v1h-2zM8,4h2v1h-2zM14,4h2v1h-2zM20,4h4v1h-4zM25,4h4v1h-4zM30,4h2v1h-2zM42,4h2v1h-2zM51,4h2v1h-2zM57,4h2v1h-2zM61,4h2v1h-2zM68,4h2v1h-2zM75,4h2v1h-2zM79,4h2v1h-2zM84,4h3v1h-3zM88,4h4v1h-4zM93,4h2v1h-2zM2,5h8v1h-8zM14,5h2v1h-2zM20,5h2v1h-2zM23,5h3v1h-3zM27,5h2v1h-2zM30,5h2v1h-2zM42,5h5v1h-5zM51,5h2v1h-2zM57,5h2v1h-2zM61,5h2v1h-2zM68,5h2v1h-2zM75,5h2v1h-2zM79,5h2v1h-2zM85,5h2v1h-2zM89,5h6v1h-6zM2,6h8v1h-8zM14,6h2v1h-2zM20,6h2v1h-2zM24,6h1v1h-1zM27,6h2v1h-2zM30,6h2v1h-2zM42,6h5v1h-5zM51,6h2v1h-2zM57,6h2v1h-2zM61,6h2v1h-2zM68,6h2v1h-2zM75,6h2v1h-2zM79,6h2v1h-2zM85,6h2v1h-2zM89,6h2v1h-2zM92,6h3v1h-3zM2,7h2v1h-2zM8,7h2v1h-2zM14,7h2v1h-2zM20,7h2v1h-2zM27,7h2v1h-2zM30,7h2v1h-2zM42,7h2v1h-2zM51,7h2v1h-2zM57,7h2v1h-2zM61,7h2v1h-2zM68,7h2v1h-2zM75,7h2v1h-2zM79,7h3v1h-3zM85,7h2v1h-2zM89,7h2v1h-2zM93,7h3v1h-3zM2,8h2v1h-2zM8,8h2v1h-2zM14,8h2v1h-2zM20,8h2v1h-2zM27,8h2v1h-2zM30,8h7v1h-7zM42,8h8v1h-8zM51,8h8v1h-8zM60,8h4v1h-4zM68,8h2v1h-2zM74,8h4v1h-4zM80,8h7v1h-7zM89,8h2v1h-2zM94,8h2v1h-2zM2,9h2v1h-2zM8,9h2v1h-2zM14,9h2v1h-2zM20,9h2v1h-2zM27,9h2v1h-2zM30,9h7v1h-7zM42,9h8v1h-8zM51,9h7v1h-7zM60,9h4v1h-4zM68,9h2v1h-2zM74,9h4v1h-4zM81,9h5v1h-5zM89,9h2v1h-2zM94,9h2v1h-2z" />
-        </svg>
+      <!-- 公式マインクラフトBETA表示 -->
+      <div class="edition-badge" id="edition-badge" title="Minecraft: Beta" aria-label="BETA">
+        <span style="font-family: 'Minecraftia', sans-serif; font-size: 2.2rem; font-weight: 900; letter-spacing: 0.22em; color: #ffffff; -webkit-text-stroke: 1.5px #111111; text-shadow: 1px 1px 0 #cccccc, 2px 2px 0 #999999, 3px 3px 0 #666666, 4px 4px 0 #444444, 5px 5px 0 #222222, 6px 6px 0 #111111, 7px 7px 0 #000000, 8px 8px 4px rgba(0,0,0,0.85); user-select: none;">BETA</span>
       </div>
       <div class="menu">
         <button class="btn-minecraft" id="btn-single" data-key="single">シングルプレイ</button>
@@ -587,7 +585,7 @@
     </div>
   </div>
 
-  <div id="topright-password" style="display:none; position:fixed; top:10px; right:14px; z-index:500; background:rgba(0,0,0,0.7); border:2px solid rgba(255,255,255,0.3); padding:4px 12px; color:#55ffff; font-family:'Minecraftia',sans-serif; font-size:0.75rem; text-shadow:1px 1px 0 rgba(0,0,0,0.8); pointer-events:none;">
+  <div id="topright-password" style="display:none; position:fixed; top:10px; right:14px; z-index:500; background:rgba(0,0,0,0.7); border:2px solid rgba(255,255,255,0.3); padding:4px 12px; color:#55ffff; font-family:'Minecraftia',sans-serif; font-size:0.75rem; text-shadow:1px 1px 0 rgba(0,0,0,0.8);">
     PW: <span id="topright-password-text"></span>
   </div>
 
@@ -677,6 +675,7 @@
       return false;
     }
 
+    // 同名ワールドがある場合、(1)(2)... と番号を付けて重複を避ける
     function uniqueWorldName(baseName) {
       const existing = new Set(worlds.map(w => w.name));
       if (!existing.has(baseName)) return baseName;
@@ -718,6 +717,7 @@
       if (overlay) overlay.style.display = 'none';
     }
 
+    // 安全装置：もしFirebaseの応答が3秒以上返らない場合は強制的にログイン画面を表示する
     const connectionTimeout = setTimeout(() => {
       if (document.getElementById('auto-connect-overlay').style.display !== 'none' && !firebaseUid) {
         showOverlayLogin('接続タイムアウトしました。パスワードを入力してください。', true);
@@ -919,6 +919,7 @@
       });
     }
 
+    // 未実装ボタン: 「作成中です。」モーダルを表示
     const comingSoonModal = document.getElementById('coming-soon-modal');
     function showComingSoon() { if (comingSoonModal) comingSoonModal.style.display = 'flex'; }
     document.getElementById('btn-close-coming-soon').addEventListener('click', () => { if (comingSoonModal) comingSoonModal.style.display = 'none'; });
@@ -1146,11 +1147,13 @@
         const isLocal = id.startsWith('local-') || !firebaseUid;
         selectedWorldIndex = null;
         if (isLocal) {
+          // ローカル: 即座にリストから削除
           deleteLocalWorld(firebaseUid, id);
           const idx = worlds.findIndex(w => w.id === id);
           if (idx >= 0) worlds.splice(idx, 1);
           renderWorlds();
         } else if (window.deleteWorldRemote && firebaseUid) {
+          // リモート: onSnapshot が自動でリストを更新するので、ここで splice しない（二重削除バグ回避）
           renderWorlds();
           try {
             await window.deleteWorldRemote(firebaseUid, id);
