@@ -1009,8 +1009,25 @@
     }
 
     document.getElementById('btn-start-create').addEventListener('click', () => {
-      const rawName = document.getElementById('world-name-input').value || "新しい世界";
+      const input = document.getElementById('world-name-input');
+      const rawName = input.value.trim() || "新しい世界";
       const worldName = uniqueWorldName(rawName);
+
+      // 先にローカルへ確実に保存する。Firebaseの通信失敗でもワールド作成を止めない。
+      const meta = {
+        structuresEnabled: newWorldStructures,
+        gameMode: newWorldMode,
+        worldType: newWorldType
+      };
+      const createdWorld = addLocalWorld(firebaseUid, worldName, meta);
+
+      // 現在の一覧へ即時反映
+      const existingIndex = worlds.findIndex(w => w.id === createdWorld.id);
+      if (existingIndex === -1) worlds.push(createdWorld);
+      worlds.sort((a,b) => (a.createdAt||0) - (b.createdAt||0));
+      selectedWorldIndex = worlds.findIndex(w => w.id === createdWorld.id);
+      renderWorlds();
+
       changeScreen(loadingMenu);
 
       let percent = 0;
@@ -1019,39 +1036,18 @@
       mapChunk.style.width = '20px';
       mapChunk.style.height = '20px';
 
-      const interval = setInterval(async () => {
+      const interval = setInterval(() => {
         percent += Math.floor(Math.random() * 8) + 3;
         if (percent >= 100) {
           percent = 100;
           clearInterval(interval);
-
-          const meta = {
-            structuresEnabled: newWorldStructures,
-            gameMode: newWorldMode,
-            worldType: newWorldType
-          };
-
-          if (window.createWorldRemote && firebaseUid) {
-            try {
-              await window.createWorldRemote(firebaseUid, worldName, savedDisplayName, meta);
-            } catch (e) {
-              const w = addLocalWorld(firebaseUid, worldName, meta);
-              if (!firebaseUnsubWorlds) {
-                worlds.push(w);
-                renderWorlds();
-              }
-            }
-          } else {
-            const w = addLocalWorld(firebaseUid, worldName, meta);
-            worlds.push(w);
+          setTimeout(() => {
+            changeScreen(singleMenu);
             renderWorlds();
-          }
-
-          selectedWorldIndex = null;
-          setTimeout(() => { changeScreen(singleMenu); }, 400);
+          }, 400);
         }
         loadingText.textContent = percent + '%';
-        let boxSize = 20 + (percent * 1.4);
+        const boxSize = 20 + (percent * 1.4);
         mapChunk.style.width = boxSize + 'px';
         mapChunk.style.height = boxSize + 'px';
       }, 80);
@@ -1106,30 +1102,28 @@
     });
 
     document.getElementById('btn-save-edit').addEventListener('click', async () => {
-      if (selectedWorldIndex !== null) {
-        const newName = document.getElementById('edit-name-input').value.trim();
-        if (newName) {
-          const id = worlds[selectedWorldIndex].id;
-          if (window.updateWorldRemote && firebaseUid && !id.startsWith('local-')) {
-            try {
-              await window.updateWorldRemote(firebaseUid, id, newName);
-            } catch (e) {
-              updateLocalWorld(firebaseUid, id, newName);
-              worlds[selectedWorldIndex].name = newName;
-              renderWorlds();
-            }
-          } else {
-            if (id.startsWith('local-') || !firebaseUid) {
-              updateLocalWorld(firebaseUid, id, newName);
-              worlds[selectedWorldIndex].name = newName;
-              renderWorlds();
-            }
-          }
-          changeScreen(singleMenu);
-        }
-      } else {
+      if (selectedWorldIndex === null || !worlds[selectedWorldIndex]) {
         changeScreen(singleMenu);
+        return;
       }
+
+      const newName = document.getElementById('edit-name-input').value.trim();
+      if (!newName) return;
+
+      const world = worlds[selectedWorldIndex];
+      const id = world.id;
+
+      // ローカル保存を必ず更新するため、編集がFirebaseの状態に左右されない
+      updateLocalWorld(firebaseUid, id, newName);
+      world.name = newName;
+      renderWorlds();
+
+      // リモートの既存ワールドだった場合だけ同期を試す
+      if (window.updateWorldRemote && firebaseUid && !id.startsWith('local-')) {
+        try { await window.updateWorldRemote(firebaseUid, id, newName); } catch (e) {}
+      }
+
+      changeScreen(singleMenu);
     });
 
     document.getElementById('btn-edit-back').addEventListener('click', () => changeScreen(singleMenu));
@@ -1142,27 +1136,22 @@
     });
 
     document.getElementById('btn-confirm-delete').addEventListener('click', async () => {
-      if (deleteTargetType === 'world' && selectedWorldIndex !== null) {
-        const id = worlds[selectedWorldIndex].id;
-        const isLocal = id.startsWith('local-') || !firebaseUid;
-        selectedWorldIndex = null;
-        if (isLocal) {
-          // ローカル: 即座にリストから削除
-          deleteLocalWorld(firebaseUid, id);
-          const idx = worlds.findIndex(w => w.id === id);
-          if (idx >= 0) worlds.splice(idx, 1);
-          renderWorlds();
-        } else if (window.deleteWorldRemote && firebaseUid) {
-          // リモート: onSnapshot が自動でリストを更新するので、ここで splice しない（二重削除バグ回避）
-          renderWorlds();
-          try {
-            await window.deleteWorldRemote(firebaseUid, id);
-          } catch (e) {}
-        } else {
-          renderWorlds();
-        }
-        changeScreen(singleMenu);
+      if (deleteTargetType !== 'world' || selectedWorldIndex === null || !worlds[selectedWorldIndex]) return;
+
+      const id = worlds[selectedWorldIndex].id;
+
+      // まずローカルから確実に削除
+      deleteLocalWorld(firebaseUid, id);
+      worlds.splice(selectedWorldIndex, 1);
+      selectedWorldIndex = null;
+      renderWorlds();
+
+      // リモートワールドなら削除も試す。失敗しても画面操作は止めない。
+      if (window.deleteWorldRemote && firebaseUid && !id.startsWith('local-')) {
+        try { await window.deleteWorldRemote(firebaseUid, id); } catch (e) {}
       }
+
+      changeScreen(singleMenu);
     });
 
     document.getElementById('btn-delete-back').addEventListener('click', () => {
