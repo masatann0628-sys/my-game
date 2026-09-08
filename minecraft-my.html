@@ -1964,14 +1964,117 @@ Controls:
             // 他のブロックと同じ等角投影で描き、大きさ・形を通常ブロックに揃える
             var sSide = Math.sqrt(3) / 2;
             var stairQuads = [
-              [[-0.5, 0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0], [-0.5, 0.5, 0], 1.0],
-              [[-0.5, 0.5, 0.5], [-0.5, 0.5, 0], [-0.5, 0, 0], [-0.5, 0, 0.5], 0.7],
-              [[0.5, 0.5, 0], [0.5, 0.5, -0.5], [0.5, 0, -0.5], [0.5, 0, 0], 0.4],
-              [[0.5, 0, 0.5], [0.5, 0, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], 0.4],
-              [[-0.5, 0, 0.5], [0.5, 0, 0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5], 0.7],
-              [[-0.5, 0.5, 0], [0.5, 0.5, 0], [0.5, 0, 0], [-0.5, 0, 0], 0.7],
-              [[-0.5, 0, 0.5], [0.5, 0, 0.5], [0.5, 0, 0], [-0.5, 0, 0], 1.0]
-            ];
+              // =========================================
+  // ① 上段の上面
+  // =========================================
+  [
+    [-0.5, 0.5, -0.5],
+    [ 0.5, 0.5, -0.5],
+    [ 0.5, 0.5,  0.0],
+    [-0.5, 0.5,  0.0],
+    1.0
+  ],
+
+  // =========================================
+  // ② 下段の上面
+  // =========================================
+  [
+    [-0.5, 0.0, 0.0],
+    [ 0.5, 0.0, 0.0],
+    [ 0.5, 0.0, 0.5],
+    [-0.5, 0.0, 0.5],
+    1.0
+  ],
+
+  // =========================================
+  // ③ 段差の立ち上がり
+  // =========================================
+  [
+    [-0.5, 0.0, 0.0],
+    [-0.5, 0.5, 0.0],
+    [ 0.5, 0.5, 0.0],
+    [ 0.5, 0.0, 0.0],
+    0.7
+  ],
+
+  // =========================================
+  // ④ 手前の面
+  // =========================================
+  [
+    [-0.5, -0.5, 0.5],
+    [-0.5,  0.0, 0.5],
+    [ 0.5,  0.0, 0.5],
+    [ 0.5, -0.5, 0.5],
+    0.7
+  ],
+
+  // =========================================
+  // ⑤ 右側面・上段
+  // =========================================
+  [
+    [0.5, 0.0, -0.5],
+    [0.5, 0.5, -0.5],
+    [0.5, 0.5,  0.0],
+    [0.5, 0.0,  0.0],
+    0.4
+  ],
+
+  // =========================================
+  // ⑥ 右側面・下段
+  // =========================================
+  [
+    [0.5, -0.5, -0.5],
+    [0.5,  0.0, -0.5],
+    [0.5,  0.0,  0.5],
+    [0.5, -0.5,  0.5],
+    0.4
+  ],
+
+  // =========================================
+// ⑦ 左側面・上段
+// =========================================
+[
+  [-0.5, 0.5,  0.0],
+  [-0.5, 0.0,  0.0],
+  [-0.5, 0.0, -0.5],
+  [-0.5, 0.5, -0.5],
+  0.7
+],
+
+  // =========================================
+// ⑧ 左側面・下段
+// =========================================
+[
+  [-0.5, 0.0,  0.5],
+  [-0.5, -0.5,  0.5],
+  [-0.5, -0.5, -0.5],
+  [-0.5, 0.0, -0.5],
+  0.7
+],
+ 
+  // =========================================
+  // ⑨ 奥の面
+  // =========================================
+  [
+    [-0.5, -0.5, -0.5],
+    [-0.5,  0.5, -0.5],
+    [ 0.5,  0.5, -0.5],
+    [ 0.5, -0.5, -0.5],
+    0.55
+  ],
+
+  // =========================================
+  // ⑩ 底面
+  // 透明な穴が見える場合に備えて追加
+  // =========================================
+  [
+    [-0.5, -0.5,  0.5],
+    [-0.5, -0.5, -0.5],
+    [ 0.5, -0.5, -0.5],
+    [ 0.5, -0.5,  0.5],
+    0.45
+  ]
+];
             var sTexVerts = textureCoords[textureMap[stairTex]];
             for (var sq = 0; sq < stairQuads.length; sq++) {
               for (var sv = 0; sv < 4; sv++) {
@@ -1990,7 +2093,7 @@ Controls:
             gl.bindBuffer(gl.ARRAY_BUFFER, stairBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, newFloat32Array(data), gl.STATIC_DRAW);
             blockIcons.push(stairBuffer);
-            blockIconCounts.push(42);
+            blockIconCounts.push(60);
             continue;
           }
 
@@ -4086,8 +4189,13 @@ Controls:
         }, "pause");
         addButton(width / 2 - 150, 300, 300, 50, "セーブして終了", function() {
           saveWorld();
+          if (isMultiplayer && window.__mcMPLeave) {
+            window.__mcMPLeave();
+            setTimeout(function() { window.location.href = 'minecraft.html'; }, 80);
+          } else {
+            window.location.href = 'minecraft.html';
+          }
           releasePointer();
-          window.location.href = 'minecraft.html';
         }, "pause");
         addButton(width / 2 - 150, 180, 300, 50, "\ud83d\udda5 \u30d1\u30bd\u30b3\u30f3\u7528", function() {
           controlMode = "pc";
@@ -6002,7 +6110,12 @@ function clickInvFurnace() {
           initEverything();
         }
         if (k === "t") {
-          initTextures();
+          if (isMultiplayer && window.__mcMPOpenChat) {
+            e.preventDefault();
+            window.__mcMPOpenChat();
+          } else {
+            initTextures();
+          }
         }
         if (screen === "play") {
           if (k === "p") {
@@ -6497,34 +6610,214 @@ function clickInvFurnace() {
     let ready = false;
     let lastPlayerWrite = 0;
     let lastLocalBlockUpload = 0;
+    const chatRef = collection(db, 'multiplayerRooms', roomId, 'chat');
+    const chatMessages = [];
+    let chatUnsub = null;
+    let chatOpen = false;
+    let leavingMultiplayer = false;
+
+    // ---- Multiplayer chat UI ----
+    const mpChatButton = document.createElement('button');
+    mpChatButton.type = 'button';
+    mpChatButton.textContent = '💬';
+    mpChatButton.title = 'チャット';
+    mpChatButton.setAttribute('aria-label', 'チャット');
+    mpChatButton.style.cssText =
+      'position:fixed;right:18px;top:18px;z-index:10001;width:52px;height:52px;' +
+      'border:2px solid rgba(255,255,255,.75);border-radius:12px;background:rgba(0,0,0,.58);' +
+      'color:#fff;font-size:27px;cursor:pointer;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35);';
+    document.body.appendChild(mpChatButton);
+
+    const mpChatPanel = document.createElement('div');
+    mpChatPanel.style.cssText =
+      'position:fixed;right:18px;top:78px;z-index:10000;width:min(390px,calc(100vw - 36px));' +
+      'height:min(430px,calc(100vh - 110px));display:none;flex-direction:column;' +
+      'background:rgba(18,18,18,.94);border:2px solid rgba(255,255,255,.25);border-radius:12px;' +
+      'box-shadow:0 8px 28px rgba(0,0,0,.45);font-family:Arial,sans-serif;color:#fff;';
+    document.body.appendChild(mpChatPanel);
+
+    const mpChatTitle = document.createElement('div');
+    mpChatTitle.textContent = 'マルチプレイ チャット';
+    mpChatTitle.style.cssText = 'padding:10px 12px;font-weight:bold;border-bottom:1px solid rgba(255,255,255,.15);';
+    mpChatPanel.appendChild(mpChatTitle);
+
+    const mpChatMessages = document.createElement('div');
+    mpChatMessages.style.cssText = 'flex:1;overflow-y:auto;padding:10px 12px;line-height:1.4;font-size:14px;';
+    mpChatPanel.appendChild(mpChatMessages);
+
+    const mpChatForm = document.createElement('form');
+    mpChatForm.style.cssText = 'display:flex;gap:6px;padding:9px;border-top:1px solid rgba(255,255,255,.15);';
+    mpChatPanel.appendChild(mpChatForm);
+
+    const mpChatInput = document.createElement('input');
+    mpChatInput.type = 'text';
+    mpChatInput.maxLength = 120;
+    mpChatInput.placeholder = 'メッセージを入力…';
+    mpChatInput.autocomplete = 'off';
+    mpChatInput.style.cssText =
+      'flex:1;min-width:0;padding:9px 10px;border:1px solid #777;border-radius:7px;' +
+      'background:#222;color:#fff;outline:none;font-size:14px;';
+    mpChatForm.appendChild(mpChatInput);
+
+    const mpChatSend = document.createElement('button');
+    mpChatSend.type = 'submit';
+    mpChatSend.textContent = '送信';
+    mpChatSend.style.cssText =
+      'padding:9px 12px;border:0;border-radius:7px;background:#fff;color:#111;font-weight:bold;cursor:pointer;';
+    mpChatForm.appendChild(mpChatSend);
+
+    function renderMPChat() {
+      mpChatMessages.textContent = '';
+      chatMessages.slice(-60).forEach(m => {
+        const row = document.createElement('div');
+        row.style.cssText = 'margin-bottom:8px;word-break:break-word;';
+        const who = document.createElement('span');
+        who.textContent = String(m.name || 'Player') + ': ';
+        who.style.fontWeight = 'bold';
+        const body = document.createElement('span');
+        body.textContent = String(m.text || '');
+        row.appendChild(who);
+        row.appendChild(body);
+        mpChatMessages.appendChild(row);
+      });
+      mpChatMessages.scrollTop = mpChatMessages.scrollHeight;
+    }
+
+    function openMPChat() {
+      if (!bridgeWait()) return;
+      chatOpen = true;
+      mpChatButton.style.display = 'block';
+      mpChatPanel.style.display = 'flex';
+      setTimeout(() => mpChatInput.focus(), 0);
+      renderMPChat();
+    }
+
+    function closeMPChat() {
+      chatOpen = false;
+      mpChatPanel.style.display = 'none';
+      mpChatButton.style.display = 'block';
+    }
+
+    window.__mcMPOpenChat = openMPChat;
+    mpChatButton.addEventListener('click', () => {
+      if (chatOpen) closeMPChat();
+      else openMPChat();
+    });
+
+    mpChatForm.addEventListener('submit', e => {
+      e.preventDefault();
+      const value = mpChatInput.value.trim();
+      if (!value || leavingMultiplayer) return;
+      mpChatInput.value = '';
+      setDoc(doc(chatRef), {
+        name: playerName,
+        text: value.slice(0, 120),
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+    });
+
+    mpChatInput.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMPChat();
+      }
+      e.stopPropagation();
+    });
+
+    window.addEventListener('keydown', e => {
+      if (!bridgeWait() || leavingMultiplayer) return;
+      if (e.key.toLowerCase() === 't' && document.activeElement !== mpChatInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        openMPChat();
+      }
+    }, true);
+
+    async function removeMyPresence() {
+      if (leavingMultiplayer) return;
+      leavingMultiplayer = true;
+      try { await deleteDoc(doc(playersRef, myId)); } catch (e) {}
+    }
+    window.__mcMPLeave = removeMyPresence;
+    window.addEventListener('pagehide', () => { removeMyPresence(); });
+    window.addEventListener('beforeunload', () => { removeMyPresence(); });
 
     async function startMultiplayer() {
       try {
         try { await signInAnonymously(auth); } catch (e) { /* current rules may not require Auth */ }
 
         // Subscribe to players.
+        // 同じ名前のプレイヤーが複数いる場合はIDの小さい1人だけを残す。
         playerUnsub = onSnapshot(playersRef, snap => {
-          const seen = new Set();
+          const now = Date.now();
+          const docs = [];
           snap.forEach(ds => {
-            if (ds.id === myId) return;
             const d = ds.data() || {};
             if (typeof d.x !== 'number' || typeof d.y !== 'number' || typeof d.z !== 'number') return;
-            seen.add(ds.id);
-            const old = remotePlayers.get(ds.id);
-            remotePlayers.set(ds.id, {
-              id: ds.id,
-              name: String(d.name || 'Player'),
+            docs.push({ id: ds.id, data: d });
+          });
+
+          const winnerByName = new Map();
+          docs.forEach(item => {
+            const name = String(item.data.name || 'Player');
+            const current = winnerByName.get(name);
+            if (!current || item.id < current.id) winnerByName.set(name, item);
+          });
+
+          const seen = new Set();
+          const duplicateIds = new Set();
+          docs.forEach(item => {
+            const name = String(item.data.name || 'Player');
+            const winner = winnerByName.get(name);
+            if (!winner || winner.id !== item.id) {
+              duplicateIds.add(item.id);
+              return;
+            }
+            if (item.id === myId) return;
+            seen.add(item.id);
+            const d = item.data;
+            const old = remotePlayers.get(item.id);
+            remotePlayers.set(item.id, {
+              id: item.id,
+              name: name,
               tx: d.x, ty: d.y, tz: d.z,
               ry: Number(d.ry) || 0,
               x: old ? old.x : d.x,
               y: old ? old.y : d.y,
               z: old ? old.z : d.z,
-              last: Date.now()
+              last: now,
+              updatedAtMs: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : now
             });
           });
-          for (const [id, p] of remotePlayers) {
-            if (!seen.has(id) && Date.now() - p.last > 5000) remotePlayers.delete(id);
+
+          // 重複側のドキュメントを削除。自分自身が重複側なら自分のキャラも消える。
+          duplicateIds.forEach(id => {
+            remotePlayers.delete(id);
+            deleteDoc(doc(playersRef, id)).catch(() => {});
+          });
+
+          for (const [id, rp] of remotePlayers) {
+            if (!seen.has(id) && now - rp.last > 3500) remotePlayers.delete(id);
           }
+        });
+
+        // Subscribe to chat.
+        chatUnsub = onSnapshot(chatRef, snap => {
+          const list = [];
+          snap.forEach(ds => {
+            const d = ds.data() || {};
+            if (typeof d.text !== 'string') return;
+            list.push({
+              id: ds.id,
+              name: String(d.name || 'Player'),
+              text: d.text.slice(0, 120),
+              time: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0
+            });
+          });
+          list.sort((a, b) => (a.time - b.time) || a.id.localeCompare(b.id));
+          chatMessages.length = 0;
+          chatMessages.push(...list.slice(-60));
+          if (chatOpen) renderMPChat();
         });
 
         // Subscribe to block changes. Remote application never calls the local upload callback.
@@ -6575,6 +6868,7 @@ function clickInvFurnace() {
         } catch (e) { console.warn('初期ブロック同期:', e); }
 
         ready = true;
+        mpChatButton.style.display = 'block';
       } catch (e) {
         console.error('Multiplayer initialization failed:', e);
       }
@@ -6630,7 +6924,10 @@ function clickInvFurnace() {
       // This does not replace or modify the local player's rendering.
       const visiblePlayers = [];
       for (const [id, rp] of remotePlayers) {
-        if (now - rp.last > 7000) continue;
+        if (now - rp.last > 3500) {
+          remotePlayers.delete(id);
+          continue;
+        }
 
         // Smooth network movement so remote players do not jump between packets.
         rp.x += (rp.tx - rp.x) * 0.28;
@@ -6731,10 +7028,6 @@ function clickInvFurnace() {
         updatedAt: serverTimestamp()
       }, { merge: true }).catch(e => {});
     }, 50);
-
-    window.addEventListener('beforeunload', () => {
-      try { deleteDoc(doc(playersRef, myId)); } catch(e) {}
-    });
 
     startMultiplayer();
   }
