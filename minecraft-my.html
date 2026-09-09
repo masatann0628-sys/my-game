@@ -57,7 +57,7 @@ Controls:
       <button data-action="inventory" style="width:110px;height:48px;font-size:15px;pointer-events:auto;">インベントリ</button>
     </div>
   </div>
-  <canvas id="overlay" tabindex="0" width="600" height="600" style="position: absolute; top: 0px; left: 0px"></canvas>
+  <canvas id="overlay" tabindex="0" width="600" height="600" style="position: absolute; top: 0px; left: 0px; z-index: 10;"></canvas>
   <script>
     var canvas = document.getElementById("overlay");
     var ctx = canvas.getContext("2d");
@@ -314,6 +314,15 @@ Controls:
             for (var y = 0; y < 16; y++) {
               d = Math.random() * 0.1 + 0.92;
               setPixel(n, x, y, 0x4a * d, 0x44 * d, 0x9e * d);
+            }
+          }
+        },
+        mpTintWhite: function(n) {
+          var d;
+          for (var x = 0; x < 16; x++) {
+            for (var y = 0; y < 16; y++) {
+              d = Math.random() * 0.08 + 0.92;
+              setPixel(n, x, y, 255 * d, 255 * d, 255 * d);
             }
           }
         },
@@ -1050,7 +1059,14 @@ Controls:
         var look = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 0 : 2);
         if (info.type === "slab") return face === "top" ? 0 : face === "bottom" ? 1 : p.y < pos[1] ? 1 : 0;
         if (info.type === "log") return face === "top" || face === "bottom" ? 0 : face === "north" || face === "south" ? 2 : 1;
-        if (info.type === "stairs") return face === "top" ? 4 | look : face === "north" ? 2 : face === "south" ? 0 : face === "east" ? 3 : face === "west" ? 1 : look;
+        if (info.type === "stairs") {
+          // 上向きに設置（地面の上）= 通常の階段、下向き（天井）= 逆さまの階段
+          // 全ての面でプレイヤーの向きを反映し、上下・左右・反対も全方向対応
+          if (face === "top") return look;
+          if (face === "bottom") return 4 | look;
+          // 側面に設置するときもプレイヤーの向きを使う（反対方向も可能）
+          return look;
+        }
         return look;
       }
       function placeDoorUpper(x, y, z, id, meta) {
@@ -1084,6 +1100,8 @@ Controls:
         if (!customIds[id] || customIds[id].type !== "door") return;
         var key = x + "," + y + "," + z;
         var meta = blockMetadata[key] || 0;
+        var wasOpen = !!(meta & 4);
+        var facing = meta & 3;
         var oy = (meta & 8) ? y - 1 : y + 1;
         var otherId = world.getBlock(x, oy, z);
         var otherIsDoor = !!(customIds[otherId] && customIds[otherId].type === "door");
@@ -1095,6 +1113,25 @@ Controls:
         }
         blockMetadata[key] = meta ^ 4;
         world.setBlock(x, y, z, id);
+
+        // 開いているドアを閉じた瞬間にプレイヤーが扉の当たり判定へ
+        // 重なっていると、従来のY方向解決で上へ押し出されることがある。
+        // 閉じる操作では、扉の面に対して左右へ逃がす。
+        if (wasOpen && p && !p.flying) {
+          var px = Number(p.x) || 0;
+          var pz = Number(p.z) || 0;
+          if (facing === 0 || facing === 2) {
+            var sx = px - x;
+            var pushX = Math.abs(sx) > 0.08 ? (sx > 0 ? 0.24 : -0.24) : (facing === 0 ? 0.24 : -0.24);
+            p.x += pushX;
+            p.velocity.x = 0;
+          } else {
+            var sz = pz - z;
+            var pushZ = Math.abs(sz) > 0.08 ? (sz > 0 ? 0.24 : -0.24) : (facing === 1 ? 0.24 : -0.24);
+            p.z += pushZ;
+            p.velocity.z = 0;
+          }
+        }
         // ドアの開閉状態を他プレイヤーへ同期する（上下両方）
         if (isMultiplayer && window.__mcMPBridge && typeof window.__mcMPBridge.localBlockChanged === 'function') {
           window.__mcMPBridge.localBlockChanged(x, y, z, id, undefined, blockMetadata[key]);
@@ -1233,6 +1270,11 @@ Controls:
       }
 
       function getSelectedWorldSaveKey() {
+        // シングルプレイとマルチプレイは完全に別ストレージ領域にする。
+        // マルチは room ID をワールドIDとして使い、mc_selected_world を参照しない。
+        if (isMultiplayer && multiplayerRoomId) {
+          return 'mc_mp_save_' + multiplayerRoomId;
+        }
         var selWorld = null;
         try { selWorld = JSON.parse(localStorage.getItem('mc_selected_world') || 'null'); } catch(e) {}
         return selWorld && selWorld.id ? 'mc_save_' + selWorld.id : 'mc_save_default';
@@ -1766,6 +1808,14 @@ Controls:
         if (!p.nextHungerTick) p.nextHungerTick = now + 30000;
         if (now >= p.nextHungerTick) { p.hunger = Math.max(0, p.hunger - 1); p.nextHungerTick = now + 30000; updateHUD = true; }
         if (p.hunger <= 0 && (!p.nextDamageTick || now >= p.nextDamageTick)) { p.health = Math.max(0, p.health - 1); p.nextDamageTick = now + 2000; updateHUD = true; }
+        // 満腹ゲージが満タン（18以上）のとき、少しずつHPを回復する
+        if (p.hunger >= 18 && p.health < 20 && p.health > 0) {
+          if (!p.nextRegenTick || now >= p.nextRegenTick) {
+            p.health = Math.min(20, p.health + 1);
+            p.nextRegenTick = now + 3000;
+            updateHUD = true;
+          }
+        }
         if (p.health <= 0) { p.x = 8; p.y = terrainHeight(8,8) + 3; p.z = 8; p.health = 20; p.hunger = 20; }
       }
       function play() {      } //Globals
@@ -1855,10 +1905,11 @@ Controls:
           "#endif\n" +
           "varying float vShadow;" +
           "uniform sampler2D uSampler;" +
+          "uniform vec4 uColor;" +
           "varying vec2 vTexture;" +
           "void main(void){" +
           "  vec4 color = texture2D(uSampler, vTexture);" +
-          "  gl_FragColor = vec4(color.rgb * vShadow, color.a);" +
+          "  gl_FragColor = vec4(color.rgb * vShadow * uColor.rgb, color.a * uColor.a);" +
           "  if (gl_FragColor.a == 0.0) discard;" +
           "}";
       }
@@ -1964,7 +2015,7 @@ Controls:
             // 他のブロックと同じ等角投影で描き、大きさ・形を通常ブロックに揃える
             var sSide = Math.sqrt(3) / 2;
             var stairQuads = [
-              // =========================================
+               // =========================================
   // ① 上段の上面
   // =========================================
   [
@@ -2074,7 +2125,7 @@ Controls:
     [ 0.5, -0.5,  0.5],
     0.45
   ]
-];
+            ];
             var sTexVerts = textureCoords[textureMap[stairTex]];
             for (var sq = 0; sq < stairQuads.length; sq++) {
               for (var sv = 0; sv < 4; sv++) {
@@ -6225,15 +6276,37 @@ function clickInvFurnace() {
         console.log("Initializing world.");
         var selectedWorld = null;
         try { selectedWorld = JSON.parse(localStorage.getItem('mc_selected_world') || 'null'); } catch (e) {}
-        worldType = (selectedWorld && selectedWorld.worldType) || 'default';
-        gameMode = (selectedWorld && selectedWorld.gameMode) || 'survival';
-        structuresEnabled = selectedWorld && selectedWorld.structuresEnabled !== undefined ? !!selectedWorld.structuresEnabled : true;
+        // マルチプレイはシングルプレイの選択ワールド設定を絶対に引き継がない。
+        // 以前は mc_selected_world の worldType='flat' が残っていると、
+        // 自分だけマルチがフラットになることがあった。
+        if (isMultiplayer) {
+          worldType = 'default';
+          gameMode = 'survival';
+          structuresEnabled = true;
+        } else {
+          worldType = (selectedWorld && selectedWorld.worldType) || 'default';
+          gameMode = (selectedWorld && selectedWorld.gameMode) || 'survival';
+          structuresEnabled = selectedWorld && selectedWorld.structuresEnabled !== undefined ? !!selectedWorld.structuresEnabled : true;
+        }
         loadWorldData();
-        if (savedWorldData && savedWorldData.worldType) worldType = savedWorldData.worldType;
-        if (savedWorldData && savedWorldData.gameMode) gameMode = savedWorldData.gameMode;
-        if (savedWorldData && savedWorldData.structuresEnabled !== undefined) structuresEnabled = !!savedWorldData.structuresEnabled;
-        worldSeed = (isMultiplayer && isFinite(multiplayerSeedParam) && multiplayerSeedParam > 0)
-          ? multiplayerSeedParam
+        if (!isMultiplayer) {
+          if (savedWorldData && savedWorldData.worldType) worldType = savedWorldData.worldType;
+          if (savedWorldData && savedWorldData.gameMode) gameMode = savedWorldData.gameMode;
+          if (savedWorldData && savedWorldData.structuresEnabled !== undefined) structuresEnabled = !!savedWorldData.structuresEnabled;
+        }
+        // seed がURLに無い場合でも、同じルームなら全員が同じ地形になるよう
+        // room ID から決定的な seed を作る。
+        function multiplayerRoomSeed(room) {
+          var h = 2166136261 >>> 0;
+          var text = String(room || 'default-room');
+          for (var si = 0; si < text.length; si++) {
+            h ^= text.charCodeAt(si);
+            h = Math.imul(h, 16777619) >>> 0;
+          }
+          return (h % 2000000000) + 1;
+        }
+        worldSeed = (isMultiplayer)
+          ? ((isFinite(multiplayerSeedParam) && multiplayerSeedParam > 0) ? multiplayerSeedParam : multiplayerRoomSeed(multiplayerRoomId))
           : ((savedWorldData && savedWorldData.worldSeed !== undefined) ? savedWorldData.worldSeed : random(2000000000));
         seedHash(worldSeed);
         noiseSeed(worldSeed);
@@ -6304,9 +6377,13 @@ function clickInvFurnace() {
           canv.width = ctx.canvas.width;
           canv.height = ctx.canvas.height;
           canv.style.position = "absolute";
-          canv.style.zIndex = -1;
+          // WebGLのゲーム画面を2Dオーバーレイより下、bodyの背景より上に表示する。
+          // z-index:-1 だとブラウザによってbody背景の後ろに隠れてしまい、
+          // clearColorの水色だけが見えてブロックが表示されないことがある。
+          canv.style.zIndex = "0";
           canv.style.top = "0px";
           canv.style.left = "0px";
+          canv.style.pointerEvents = "none";
           gl = canv.getContext("webgl", {
             preserveDrawingBuffer: true,
             antialias: false
@@ -6335,6 +6412,8 @@ function clickInvFurnace() {
         gl.useProgram(programObject3D);
         glCache.locations.uEdge = gl.getUniformLocation(programObject3D, "uEdge");
         glCache.locations.uSampler = gl.getUniformLocation(programObject3D, "uSampler");
+        glCache.locations.uColor = gl.getUniformLocation(programObject3D, "uColor");
+        if (glCache.locations.uColor) gl.uniform4f(glCache.locations.uColor, 1, 1, 1, 1);
         glCache.locations.aShadow = gl.getAttribLocation(programObject3D, "aShadow");
         //Send the block textures to the GPU
         initTextures();
@@ -6401,17 +6480,17 @@ function clickInvFurnace() {
         // 他プレイヤー描画用の体のパーツ定義（足元を原点としたブロック単位）
         var MP_PLAYER_TEX = {
           head: ["mpHair", "mpSkin", "mpHeadFace", "mpHeadSide", "mpHeadSide", "mpHeadSide"],
-          body: ["mpShirt", "mpShirt", "mpShirt", "mpShirt", "mpShirt", "mpShirt"],
+          body: ["mpTintWhite", "mpTintWhite", "mpTintWhite", "mpTintWhite", "mpTintWhite", "mpTintWhite"],
           skin: ["mpSkin", "mpSkin", "mpSkin", "mpSkin", "mpSkin", "mpSkin"],
-          pants: ["mpPants", "mpPants", "mpPants", "mpPants", "mpPants", "mpPants"]
+          pants: ["mpTintWhite", "mpTintWhite", "mpTintWhite", "mpTintWhite", "mpTintWhite", "mpTintWhite"]
         };
         var MP_PLAYER_PARTS = [
-          [-0.125, 0.35, 0, 0.25, 0.7, 0.25, MP_PLAYER_TEX.pants], // 左足
-          [0.125, 0.35, 0, 0.25, 0.7, 0.25, MP_PLAYER_TEX.pants], // 右足
-          [-0.35, 1.0, 0, 0.2, 0.6, 0.25, MP_PLAYER_TEX.skin], // 左腕
-          [0.35, 1.0, 0, 0.2, 0.6, 0.25, MP_PLAYER_TEX.skin], // 右腕
-          [0, 1.0, 0, 0.5, 0.6, 0.25, MP_PLAYER_TEX.body], // 胴体
-          [0, 1.55, 0, 0.5, 0.5, 0.5, MP_PLAYER_TEX.head] // 頭
+          [-0.15, 0.375, 0, 0.30, 0.75, 0.30, MP_PLAYER_TEX.pants, "pants", 1.0],
+          [ 0.15, 0.375, 0, 0.30, 0.75, 0.30, MP_PLAYER_TEX.pants, "pants", 1.0],
+          [-0.45, 1.125, 0, 0.30, 0.75, 0.30, MP_PLAYER_TEX.skin, "skin", 1.0],
+          [ 0.45, 1.125, 0, 0.30, 0.75, 0.30, MP_PLAYER_TEX.skin, "skin", 1.0],
+          [ 0.00, 1.125, 0, 0.60, 0.75, 0.30, MP_PLAYER_TEX.body, "shirt", 0],
+          [ 0.00, 1.875, 0, 0.60, 0.60, 0.60, MP_PLAYER_TEX.head, "head", 0]
         ];
         window.__mcMPBridge = {
           enabled: isMultiplayer,
@@ -6423,6 +6502,31 @@ function clickInvFurnace() {
           getBlockChanges: function() { return Object.assign({}, blockChanges); },
           getFurnaceOrientations: function() { return Object.assign({}, furnaceOrientations); },
           getBlockMetadata: function() { return Object.assign({}, blockMetadata); },
+          getMiniMapSnapshot: function(radius) {
+            radius = Math.max(4, Math.min(16, Number(radius) || 10));
+            var cx = Math.floor(p.x), cz = Math.floor(p.z);
+            var cells = [];
+            for (var mz = -radius; mz <= radius; mz++) {
+              var row = [];
+              for (var mx = -radius; mx <= radius; mx++) {
+                var wx = cx + mx, wz = cz + mz;
+                // 255段を毎フレーム走査していたため、ミニマップ表示中に重くなり
+                // 更新が止まって見えることがあった。地形生成と同じ関数から地表高を取得し、
+                // その周辺だけ実ブロックを確認する。
+                var top = Math.max(1, Math.min(maxHeight - 1, Math.floor(terrainHeight(wx, wz))));
+                var id = world.getBlock(wx, top, wz);
+                if (!id) {
+                  for (var yy = Math.min(maxHeight - 1, top + 12); yy >= Math.max(1, top - 4); yy--) {
+                    var bid = world.getBlock(wx, yy, wz);
+                    if (bid) { id = bid; top = yy; break; }
+                  }
+                }
+                row.push({ id: id || 0, y: top });
+              }
+              cells.push(row);
+            }
+            return { centerX: cx, centerZ: cz, radius: radius, cells: cells };
+          },
           getGameMode: function() { return gameMode; },
           applyRemoteGameMode: function(mode) {
             if (mode !== 'survival' && mode !== 'creative') return;
@@ -6461,26 +6565,52 @@ function clickInvFurnace() {
             }
             return true;
           },
-          drawRemotePlayer3D: function(x, y, z, ry) {
+          drawRemotePlayer3D: function(x, y, z, ry, walkPhase, moving, skinColors) {
             if (!p || !world) return;
             x = Number(x); y = Number(y); z = Number(z); ry = Number(ry) || 0;
             if (!isFinite(x) || !isFinite(y) || !isFinite(z)) return;
             blockFill = true;
             blockOutlines = false;
+            var uColorLoc = glCache.locations.uColor;
+            var swing = moving ? Math.sin(walkPhase || 0) * 0.6 : 0;
             for (var i = 0; i < MP_PLAYER_PARTS.length; i++) {
               var pa = MP_PLAYER_PARTS[i];
+              var partType = pa[7];
+              var pivot = pa[8] || 0;
               copyArr(cameraModelView, modelView);
               trans(modelView, x, y - 1.62, z);
               // プレイヤーの視線方向に体の正面（顔）を向ける
               rotY(modelView, -ry);
+              // パーツごとのオフセットを適用して、頭・胴・腕・足を正しい位置に描画
+              trans(modelView, pa[0], pa[1], pa[2]);
+              // 歩行アニメーション：足と腕を前後に振る
+              if (pivot > 0 && (partType === "pants" || partType === "skin")) {
+                trans(modelView, 0, pivot / 2, 0);
+                rotX(modelView, (partType === "pants" ? swing : -swing));
+                trans(modelView, 0, -pivot / 2, 0);
+              }
               modelView[0] *= pa[3]; modelView[1] *= pa[3]; modelView[2] *= pa[3];
               modelView[4] *= pa[4]; modelView[5] *= pa[4]; modelView[6] *= pa[4];
               modelView[8] *= pa[5]; modelView[9] *= pa[5]; modelView[10] *= pa[5];
               matMult();
               transpose(matrix);
               uniformMatrix("view3d", programObject3D, "uView", false, matrix);
-              box2(pa[0] / pa[3], pa[1] / pa[4], pa[2] / pa[5], 0xff, pa[6]);
+              // スキン色で服（シャツ・ズボン）をティントする
+              if (uColorLoc) {
+                if (skinColors && partType === "shirt") {
+                  var sc = skinColors.shirt;
+                  gl.uniform4f(uColorLoc, sc[0], sc[1], sc[2], sc[3]);
+                } else if (skinColors && partType === "pants") {
+                  var pc = skinColors.pants;
+                  gl.uniform4f(uColorLoc, pc[0], pc[1], pc[2], pc[3]);
+                } else {
+                  gl.uniform4f(uColorLoc, 1, 1, 1, 1);
+                }
+              }
+              box2(0, 0, 0, 0xff, pa[6]);
             }
+            // uColorをリセットして他の描画に影響しないようにする
+            if (uColorLoc) gl.uniform4f(uColorLoc, 1, 1, 1, 1);
           }
         };
         play();
@@ -6506,6 +6636,9 @@ function clickInvFurnace() {
           }
           if (isMultiplayer && typeof window.__mcMPDrawRemotePlayers === 'function') {
             window.__mcMPDrawRemotePlayers();
+          }
+          if (isMultiplayer && typeof drawMPMiniMap === 'function') {
+            drawMPMiniMap();
           }
           // Auto-save periodically
           if (win.performance.now() - lastAutoSaveTime > 10000) {
@@ -6588,11 +6721,29 @@ function clickInvFurnace() {
   if (q.get('mode') !== 'multi' || !q.get('room')) {
     // Multiplayer module stays completely dormant in singleplayer.
   } else {
-    const app = initializeApp(firebaseConfig);
+    const app = initializeApp(firebaseConfig, 'minecraftMultiplayer');
     const db = getFirestore(app);
     const auth = getAuth(app);
     const roomId = q.get('room');
     const playerName = q.get('name') || 'Player';
+    // スキン色（服・ズボン）をURLパラメータから読み込む
+    function hexToRGB(hex) {
+      hex = String(hex || '').replace('#', '');
+      if (hex.length !== 6) return null;
+      var r = parseInt(hex.substr(0, 2), 16) / 255;
+      var g = parseInt(hex.substr(2, 2), 16) / 255;
+      var b = parseInt(hex.substr(4, 2), 16) / 255;
+      if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+      return [r, g, b, 1];
+    }
+    var DEFAULT_SHIRT = [0x3f/255, 0xb2/255, 0xc8/255, 1];
+    var DEFAULT_PANTS = [0x4a/255, 0x44/255, 0x9e/255, 1];
+    var myShirtHex = q.get('shirt') || '3fb2c8';
+    var myPantsHex = q.get('pants') || '4a449e';
+    const mySkin = {
+      shirt: hexToRGB(myShirtHex) || DEFAULT_SHIRT,
+      pants: hexToRGB(myPantsHex) || DEFAULT_PANTS
+    };
     const bridgeWait = () => window.__mcMPBridge && window.__mcMPBridge.enabled;
 
     let myId = localStorage.getItem('mc_mp_client_id');
@@ -6615,6 +6766,11 @@ function clickInvFurnace() {
     let chatUnsub = null;
     let chatOpen = false;
     let leavingMultiplayer = false;
+    let unreadCount = 0;
+    let firstChatLoad = true;
+    function updateChatButton() {
+      mpChatButton.textContent = unreadCount > 0 ? '💬 (' + unreadCount + ')' : '💬';
+    }
 
     // ---- Multiplayer chat UI ----
     const mpChatButton = document.createElement('button');
@@ -6686,6 +6842,9 @@ function clickInvFurnace() {
     function openMPChat() {
       if (!bridgeWait()) return;
       chatOpen = true;
+      unreadCount = 0;
+      updateChatButton();
+      mpChatMessages._lastSeen = chatMessages.length;
       mpChatButton.style.display = 'block';
       mpChatPanel.style.display = 'flex';
       setTimeout(() => mpChatInput.focus(), 0);
@@ -6704,16 +6863,41 @@ function clickInvFurnace() {
       else openMPChat();
     });
 
-    mpChatForm.addEventListener('submit', e => {
+    mpChatForm.addEventListener('submit', async e => {
       e.preventDefault();
-      const value = mpChatInput.value.trim();
+      const value = mpChatInput.value.trim().slice(0, 120);
       if (!value || leavingMultiplayer) return;
+
+      const messageId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       mpChatInput.value = '';
-      setDoc(doc(chatRef), {
+
+      // 先に自分の画面へ表示して、Firestore反映後に全端末で同じ履歴へ揃える
+      chatMessages.push({
+        id: messageId,
         name: playerName,
-        text: value.slice(0, 120),
-        createdAt: serverTimestamp()
-      }).catch(() => {});
+        text: value,
+        time: Date.now()
+      });
+      chatMessages.splice(0, Math.max(0, chatMessages.length - 60));
+      renderMPChat();
+
+      try {
+        await setDoc(doc(chatRef, messageId), {
+          name: playerName,
+          text: value,
+          senderId: myId,
+          createdAt: serverTimestamp(),
+          clientCreatedAt: Date.now()
+        });
+      } catch (err) {
+        // Firestoreの権限エラー等で保存できなかった場合は、送信失敗を明示する
+        const idx = chatMessages.findIndex(m => m.id === messageId);
+        if (idx >= 0) {
+          chatMessages[idx].text = value + '  [送信失敗]';
+          renderMPChat();
+        }
+        console.error('チャット同期失敗:', err);
+      }
     });
 
     mpChatInput.addEventListener('keydown', e => {
@@ -6744,7 +6928,19 @@ function clickInvFurnace() {
 
     async function startMultiplayer() {
       try {
-        try { await signInAnonymously(auth); } catch (e) { /* current rules may not require Auth */ }
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.error('Firebase匿名ログイン失敗:', e);
+          mpChatButton.style.display = 'block';
+          mpChatButton.title = 'Firebaseに接続できません';
+          mpChatMessages.innerHTML = '';
+          const row = document.createElement('div');
+          row.style.cssText = 'padding:8px;background:rgba(160,40,40,.35);border-radius:6px;';
+          row.textContent = 'Firebaseに接続できません。Firebase Authentication の「匿名」を有効にしてください。';
+          mpChatMessages.appendChild(row);
+          return;
+        }
 
         // Subscribe to players.
         // 同じ名前のプレイヤーが複数いる場合はIDの小さい1人だけを残す。
@@ -6786,6 +6982,12 @@ function clickInvFurnace() {
               y: old ? old.y : d.y,
               z: old ? old.z : d.z,
               last: now,
+              walkPhase: old ? (old.walkPhase || 0) : 0,
+              moving: old ? old.moving : false,
+              skin: {
+                shirt: hexToRGB(d.shirt) || DEFAULT_SHIRT,
+                pants: hexToRGB(d.pants) || DEFAULT_PANTS
+              },
               updatedAtMs: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : now
             });
           });
@@ -6799,6 +7001,9 @@ function clickInvFurnace() {
           for (const [id, rp] of remotePlayers) {
             if (!seen.has(id) && now - rp.last > 3500) remotePlayers.delete(id);
           }
+        }, err => {
+          console.error('プレイヤー位置同期失敗:', err);
+          mpChatButton.title = 'Firebase同期エラー: ' + (err.code || err.message || 'unknown');
         });
 
         // Subscribe to chat.
@@ -6811,13 +7016,41 @@ function clickInvFurnace() {
               id: ds.id,
               name: String(d.name || 'Player'),
               text: d.text.slice(0, 120),
-              time: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0
+              time: d.createdAt && d.createdAt.toMillis
+                ? d.createdAt.toMillis()
+                : (Number(d.clientCreatedAt) || 0)
             });
           });
           list.sort((a, b) => (a.time - b.time) || a.id.localeCompare(b.id));
+
+          // Firestoreを正としつつ、まだサーバーのsnapshotに届いていない自分の送信を保持
+          const serverIds = new Set(list.map(m => m.id));
+          const pending = chatMessages.filter(m => !serverIds.has(m.id) && !String(m.text).endsWith('  [送信失敗]'));
           chatMessages.length = 0;
           chatMessages.push(...list.slice(-60));
-          if (chatOpen) renderMPChat();
+          pending.forEach(m => chatMessages.push(m));
+          chatMessages.sort((a, b) => (a.time - b.time) || a.id.localeCompare(b.id));
+          if (chatMessages.length > 60) chatMessages.splice(0, chatMessages.length - 60);
+          // チャットが閉じていてもメッセージを更新し、未読数を表示する
+          if (firstChatLoad) {
+            firstChatLoad = false;
+            mpChatMessages._lastSeen = chatMessages.length;
+          } else if (chatOpen) {
+            renderMPChat();
+          } else {
+            var prevLen = mpChatMessages._lastSeen || 0;
+            if (chatMessages.length > prevLen) {
+              unreadCount = Math.min(99, chatMessages.length - prevLen);
+              updateChatButton();
+            }
+            renderMPChat();
+          }
+        }, err => {
+          console.error('チャット受信同期失敗:', err);
+          const row = document.createElement('div');
+          row.style.cssText = 'padding:8px;margin-bottom:8px;background:rgba(160,40,40,.35);border-radius:6px;';
+          row.textContent = 'チャットをFirebaseから同期できません: ' + (err.code || err.message || 'unknown');
+          mpChatMessages.appendChild(row);
         });
 
         // Subscribe to block changes. Remote application never calls the local upload callback.
@@ -6835,6 +7068,9 @@ function clickInvFurnace() {
               window.__mcMPBridge.applyRemoteBlock(x,y,z,Number(d.id)||0,d.furnaceDir,d.meta);
             }
           });
+        }, err => {
+          console.error('ブロック同期失敗:', err);
+          mpChatButton.title = 'Firebaseブロック同期エラー: ' + (err.code || err.message || 'unknown');
         });
 
         // 他プレイヤーがゲームモードを変更したら、この画面にも反映する
@@ -6845,6 +7081,8 @@ function clickInvFurnace() {
           if (d.gameMode === 'survival' || d.gameMode === 'creative') {
             window.__mcMPBridge.applyRemoteGameMode(d.gameMode);
           }
+        }, err => {
+          console.error('ルーム同期失敗:', err);
         });
 
         // If this room has no block records yet, seed it from the local world's saved edits.
@@ -6869,26 +7107,102 @@ function clickInvFurnace() {
 
         ready = true;
         mpChatButton.style.display = 'block';
+        mpChatButton.title = 'チャット（Firebase同期中）';
       } catch (e) {
         console.error('Multiplayer initialization failed:', e);
       }
     }
 
     function uploadLocalBlock(x,y,z,id,furnaceDir,meta) {
-      if (!ready) return;
+      if (!ready) {
+        console.warn('ブロック同期: Firebase接続準備前のため保留');
+        return;
+      }
       const key = x + ',' + y + ',' + z;
       setDoc(doc(blocksRef, key), {
         id: Number(id) || 0,
         furnaceDir: furnaceDir !== undefined ? furnaceDir : null,
         meta: (meta !== undefined && meta !== null) ? Number(meta) : null,
-        updatedAt: serverTimestamp()
-      }).catch(e => console.warn('ブロック同期失敗:', e));
+        updatedAt: serverTimestamp(),
+        clientUpdatedAt: Date.now(),
+        clientId: myId
+      }, { merge: true }).catch(e => {
+        console.error('ブロック同期失敗:', e);
+        mpChatButton.title = 'Firebaseブロック書き込み失敗: ' + (e.code || e.message || 'unknown');
+      });
     }
 
     // ゲームモード（サバイバル／クリエイティブ）を部屋の全員に共有する
     function uploadGameMode(mode) {
       if (!ready) return;
       setDoc(roomRef, { gameMode: mode, updatedBy: myId, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+    }
+
+    // マルチプレイ専用ミニマップ。ワールド座標を毎フレーム読み直すため、
+    // ブロック変更もプレイヤー位置も常に現在の状態を表示する。
+    const mpMiniMap = document.createElement('canvas');
+    mpMiniMap.id = 'multiplayer-minimap';
+    mpMiniMap.style.cssText =
+      'position:fixed;left:14px;top:14px;width:170px;height:170px;z-index:10002;' +
+      'pointer-events:none;border:3px solid rgba(0,0,0,.85);border-radius:4px;' +
+      'background:rgba(20,20,20,.82);box-shadow:0 3px 12px rgba(0,0,0,.5);display:none;image-rendering:pixelated;';
+    document.body.appendChild(mpMiniMap);
+    const mpMiniCtx = mpMiniMap.getContext('2d');
+    function resizeMPMiniMap() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      mpMiniMap.width = Math.floor(170 * dpr);
+      mpMiniMap.height = Math.floor(170 * dpr);
+      mpMiniCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      mpMiniMap.style.display = 'block';
+    }
+    resizeMPMiniMap();
+
+    function miniMapColor(id) {
+      const colors = {
+        1:'#5b9b3a', 2:'#8b5a35', 3:'#888', 4:'#444', 5:'#d9c27a', 6:'#777',
+        7:'#3f7f35', 8:'#8fd3ff', 9:'#777', 10:'#777', 11:'#a9a9a9', 12:'#b66',
+        76:'#a9783e', 77:'#6b4b2a', 78:'#777'
+      };
+      if (colors[id]) return colors[id];
+      if (id >= 12 && id <= 27) return '#bfbfbf';
+      if (id >= 28 && id <= 39) return '#8d623b';
+      if (id >= 40 && id <= 55) return '#c7b7a0';
+      if (id >= 56 && id <= 75) return '#777';
+      if (id >= 79 && id <= 100) return '#9a9a9a';
+      return '#666';
+    }
+    function drawMPMiniMap() {
+      if (!ready || !bridgeWait() || !window.__mcMPBridge.getMiniMapSnapshot) return;
+      const data = window.__mcMPBridge.getMiniMapSnapshot(10);
+      if (!data || !data.cells) return;
+      const size = 170, count = data.radius * 2 + 1;
+      const cell = size / count;
+      const c = mpMiniCtx;
+      c.clearRect(0, 0, size, size);
+      c.fillStyle = '#222'; c.fillRect(0, 0, size, size);
+      for (let z = 0; z < count; z++) {
+        for (let x = 0; x < count; x++) {
+          const cellData = data.cells[z][x];
+          c.fillStyle = miniMapColor(cellData.id);
+          c.fillRect(x * cell, z * cell, Math.ceil(cell) + 0.5, Math.ceil(cell) + 0.5);
+        }
+      }
+      // 方角ではなくプレイヤー中心固定。白い矢印が現在の向き。
+      const center = size / 2;
+      c.fillStyle = 'rgba(255,255,255,.18)';
+      c.fillRect(center - cell/2, center - cell/2, cell, cell);
+      c.save();
+      c.translate(center, center);
+      const state = window.__mcMPBridge.getPlayerState();
+      const ry = state ? Number(state.ry) || 0 : 0;
+      c.rotate(-ry);
+      c.beginPath();
+      c.moveTo(0, -9); c.lineTo(6, 8); c.lineTo(0, 4); c.lineTo(-6, 8); c.closePath();
+      c.fillStyle = '#fff'; c.fill();
+      c.restore();
+      c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.strokeRect(1,1,size-2,size-2);
+      c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(5,5,58,18);
+      c.fillStyle = '#fff'; c.font = '12px Arial'; c.fillText('MINIMAP', 10, 18);
     }
 
     // Remove the document for air to keep the room compact.
@@ -6930,13 +7244,18 @@ function clickInvFurnace() {
         }
 
         // Smooth network movement so remote players do not jump between packets.
+        var prevX = rp.x, prevZ = rp.z;
         rp.x += (rp.tx - rp.x) * 0.28;
         rp.y += (rp.ty - rp.y) * 0.28;
         rp.z += (rp.tz - rp.z) * 0.28;
+        // 歩行アニメーション用：移動量から足の振りを計算
+        var moved = Math.abs(rp.x - prevX) + Math.abs(rp.z - prevZ);
+        rp.moving = moved > 0.004;
+        if (rp.moving) rp.walkPhase = (rp.walkPhase || 0) + 0.22;
 
-        // Keep normal block occlusion: a player behind a solid block is hidden.
-        if (!bridge.isWorldPointVisible(rp.x, rp.y - 0.7, rp.z)) continue;
-
+        // 角度による誤判定でプレイヤー全体を消さない。
+        // 3D本体はワールド描画後に同じDepth Bufferで描くため、
+        // 実際にブロックの裏側にある部分だけがブロックに隠れる。
         const feet = bridge.projectWorldPoint(rp.x, rp.y - 1.62, rp.z);
         const head = bridge.projectWorldPoint(rp.x, rp.y + 0.18, rp.z);
         const left = bridge.projectWorldPoint(rp.x - 0.30, rp.y - 0.78, rp.z);
@@ -6970,14 +7289,10 @@ function clickInvFurnace() {
         const w = item.w;
         const cx = item.cx;
 
-        const headH = h * 0.30;
-        const bodyH = h * 0.34;
+        const headH = h * 0.285;
+        const bodyH = h * 0.355;
         const legH = h * 0.36;
-        const headW = w * 0.72;
-        const bodyW = w * 0.78;
-        const armW = Math.max(2, w * 0.18);
-        const legW = Math.max(3, w * 0.29);
-        const gap = Math.max(1, w * 0.06);
+        // 3D Steve本体はWebGL側で描画するため、2Dの平面パーツは作らない。
 
         // Shadow at the player's feet.
         ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -6985,7 +7300,7 @@ function clickInvFurnace() {
 
         // 他プレイヤーをワールド内に立体的なブロックキャラ（頭・胴・腕・足）として描画する
         if (typeof bridge.drawRemotePlayer3D === 'function') {
-          bridge.drawRemotePlayer3D(rp.x, rp.y, rp.z, rp.ry);
+          bridge.drawRemotePlayer3D(rp.x, rp.y, rp.z, rp.ry, rp.walkPhase, rp.moving, rp.skin);
         }
 
         // Name tag.
@@ -7014,7 +7329,7 @@ function clickInvFurnace() {
     setInterval(() => {
       if (!ready || !bridgeWait()) return;
       const now = Date.now();
-      if (now - lastPlayerWrite < 100) return;
+      if (now - lastPlayerWrite < 80) return;
       lastPlayerWrite = now;
       const s = window.__mcMPBridge.getPlayerState();
       if (!s) return;
@@ -7025,8 +7340,16 @@ function clickInvFurnace() {
         z: Number(s.z)||0,
         rx: Number(s.rx)||0,
         ry: Number(s.ry)||0,
+        shirt: myShirtHex,
+        pants: myPantsHex,
+        clientId: myId,
+        heartbeat: now,
+        clientUpdatedAt: now,
         updatedAt: serverTimestamp()
-      }, { merge: true }).catch(e => {});
+      }, { merge: true }).catch(e => {
+        console.error('プレイヤー位置書き込み失敗:', e);
+        mpChatButton.title = 'Firebase位置同期失敗: ' + (e.code || e.message || 'unknown');
+      });
     }, 50);
 
     startMultiplayer();
