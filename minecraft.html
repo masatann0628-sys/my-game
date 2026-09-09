@@ -471,12 +471,42 @@
           <button class="btn-minecraft" id="btn-go-brightness" data-key="brightnessSettings">明るさ...</button>
         </div>
         <div class="settings-row">
+          <button class="btn-minecraft" id="btn-go-skin">スキン...</button>
           <button class="btn-minecraft" id="btn-go-account">アカウント...</button>
         </div>
       </div>
 
       <div class="settings-single-col">
         <button class="btn-minecraft" id="btn-settings-back" data-key="done">完了</button>
+      </div>
+    </div>
+
+    <!-- スキン設定画面：マルチプレイ時に服の色をカスタマイズ -->
+    <div id="skin-menu" class="screen settings-screen">
+      <div class="screen-title">スキン設定</div>
+      <div style="display:flex; gap:20px; margin-bottom:1.5rem; width:50%;">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:0.5rem;">
+          <div style="width:80px; height:120px; position:relative; background:rgba(0,0,0,0.4); border:2px solid rgba(0,0,0,0.8);">
+            <div style="position:absolute; top:8px; left:24px; width:32px; height:32px; background:#c58b62; border:2px solid #2f1c0d;"></div>
+            <div id="skin-preview-body" style="position:absolute; top:44px; left:20px; width:40px; height:36px; background:#3fb2c8; border:2px solid #2f1c0d;"></div>
+            <div id="skin-preview-legs" style="position:absolute; top:82px; left:24px; width:32px; height:32px; background:#4a449e; border:2px solid #2f1c0d;"></div>
+          </div>
+          <span style="color:#aaa; font-size:0.75rem; text-shadow:2px 2px 0 rgba(0,0,0,0.8);">プレビュー</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:1rem; flex:1;">
+          <div class="form-group">
+            <span class="form-label">シャツ（服）の色</span>
+            <input type="color" id="skin-shirt-color" value="#3fb2c8" style="width:100%; height:40px; cursor:pointer; background:rgba(0,0,0,0.8); border:2px solid rgba(0,0,0,1); box-shadow:inset 2px 2px 0 rgba(0,0,0,0.8);">
+          </div>
+          <div class="form-group">
+            <span class="form-label">ズボンの色</span>
+            <input type="color" id="skin-pants-color" value="#4a449e" style="width:100%; height:40px; cursor:pointer; background:rgba(0,0,0,0.8); border:2px solid rgba(0,0,0,1); box-shadow:inset 2px 2px 0 rgba(0,0,0,0.8);">
+          </div>
+          <span class="form-desc">マルチプレイ時に他のプレイヤーに反映されます</span>
+        </div>
+      </div>
+      <div class="settings-single-col">
+        <button class="btn-minecraft" id="btn-skin-back" data-key="done">完了</button>
       </div>
     </div>
 
@@ -817,10 +847,11 @@
     const langMenu = document.getElementById('lang-menu');
     const brightnessMenu = document.getElementById('brightness-menu');
     const accountMenu = document.getElementById('account-menu');
+    const skinMenu = document.getElementById('skin-menu');
     const paywallModal = document.getElementById('paywall-modal');
 
     function changeScreen(target) {
-      [mainMenu, singleMenu, multiMenu, realmsMenu, createMenu, loadingMenu, editMenu, deleteMenu, settingsMenu, soundMenu, videoMenu, langMenu, brightnessMenu, accountMenu].forEach(s => s.style.display = 'none');
+      [mainMenu, singleMenu, multiMenu, realmsMenu, createMenu, loadingMenu, editMenu, deleteMenu, settingsMenu, soundMenu, videoMenu, langMenu, brightnessMenu, accountMenu, skinMenu].forEach(s => s.style.display = 'none');
       target.style.display = 'flex';
     }
 
@@ -877,7 +908,9 @@
         sessionStorage.setItem('mc_multi_server', JSON.stringify(srv));
         sessionStorage.setItem('mc_player_name', pName);
       } catch (e) {}
-      window.location.href = 'minecraft-my.html?mode=multi&server=' + encodeURIComponent(srv.address) + '&name=' + encodeURIComponent(pName) + '&room=' + encodeURIComponent(room.roomId) + '&seed=' + encodeURIComponent(room.seed);
+      var shirtHex = (localStorage.getItem('mc_skin_shirt') || '#3fb2c8').replace('#', '');
+      var pantsHex = (localStorage.getItem('mc_skin_pants') || '#4a449e').replace('#', '');
+      window.location.href = 'minecraft-my.html?mode=multi&server=' + encodeURIComponent(srv.address) + '&name=' + encodeURIComponent(pName) + '&room=' + encodeURIComponent(room.roomId) + '&seed=' + encodeURIComponent(room.seed) + '&shirt=' + shirtHex + '&pants=' + pantsHex;
     }
 
     document.getElementById('btn-multi-back').addEventListener('click', () => changeScreen(mainMenu));
@@ -1194,6 +1227,27 @@
         accountUidLabel.textContent = '';
       }
     }
+
+    // --- スキン設定：服の色をカスタマイズ ---
+    const skinShirtColor = document.getElementById('skin-shirt-color');
+    const skinPantsColor = document.getElementById('skin-pants-color');
+    const skinPreviewBody = document.getElementById('skin-preview-body');
+    const skinPreviewLegs = document.getElementById('skin-preview-legs');
+    function loadSkinColors() {
+      skinShirtColor.value = localStorage.getItem('mc_skin_shirt') || '#3fb2c8';
+      skinPantsColor.value = localStorage.getItem('mc_skin_pants') || '#4a449e';
+      skinPreviewBody.style.background = skinShirtColor.value;
+      skinPreviewLegs.style.background = skinPantsColor.value;
+    }
+    loadSkinColors();
+    skinShirtColor.addEventListener('input', function() { skinPreviewBody.style.background = this.value; });
+    skinPantsColor.addEventListener('input', function() { skinPreviewLegs.style.background = this.value; });
+    document.getElementById('btn-go-skin').addEventListener('click', () => { loadSkinColors(); changeScreen(skinMenu); });
+    document.getElementById('btn-skin-back').addEventListener('click', () => {
+      localStorage.setItem('mc_skin_shirt', skinShirtColor.value);
+      localStorage.setItem('mc_skin_pants', skinPantsColor.value);
+      changeScreen(settingsMenu);
+    });
 
     document.getElementById('btn-go-account').addEventListener('click', () => {
       accountPasswordInput.value = '';
