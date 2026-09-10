@@ -25,6 +25,7 @@
       onSnapshot,
       query,
       orderBy,
+      getDocs,
       serverTimestamp
     } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 
@@ -178,6 +179,105 @@
         console.warn("watchMultiplayerPlayers error:", err);
       });
     };
+
+    // ============ 管理者機能（koropon専用） ============
+    window.fetchSystemSettings = async function() {
+      try {
+        var snap = await getDoc(doc(db, 'system', 'settings'));
+        return snap.exists() ? (snap.data() || {}) : {};
+      } catch (e) {
+        console.warn('fetchSystemSettings error:', e);
+        return {};
+      }
+    };
+
+    window.setSystemMaintenance = async function(enabled) {
+      await setDoc(doc(db, 'system', 'settings'), {
+        maintenance: !!enabled,
+        maintenanceUpdatedAt: serverTimestamp()
+      }, { merge: true });
+    };
+
+    window.watchSystemSettings = function(onChange) {
+      return onSnapshot(doc(db, 'system', 'settings'), (snap) => {
+        onChange(snap.exists() ? (snap.data() || {}) : {});
+      }, (err) => {
+        console.warn('watchSystemSettings error:', err);
+      });
+    };
+
+    // 追放されている（＝5分ロック中）かどうかを調べる。されていなければ null。
+    window.checkBanStatus = async function(uid) {
+      if (!uid) return null;
+      try {
+        var snap = await getDoc(doc(db, 'bans', uid));
+        if (!snap.exists()) return null;
+        var data = snap.data() || {};
+        if (!data.active) return null;
+        var until = Number(data.until) || 0;
+        if (Date.now() >= until) {
+          // 5分経過したので自動的に解除
+          try { await deleteDoc(doc(db, 'bans', uid)); } catch (e) {}
+          return null;
+        }
+        return {
+          until: until,
+          remainingMs: until - Date.now(),
+          reason: data.reason || ''
+        };
+      } catch (e) {
+        console.warn('checkBanStatus error:', e);
+        return null;
+      }
+    };
+
+    window.watchBanForMe = function(uid, onChange) {
+      if (!uid) return () => {};
+      return onSnapshot(doc(db, 'bans', uid), (snap) => {
+        if (!snap.exists()) { onChange(null); return; }
+        var data = snap.data() || {};
+        if (!data.active || Date.now() >= (Number(data.until) || 0)) { onChange(null); return; }
+        onChange({ until: Number(data.until) || 0, reason: data.reason || '' });
+      }, (err) => {
+        console.warn('watchBanForMe error:', err);
+      });
+    };
+
+    window.kickPlayerByUid = async function(targetUid, targetName, reason) {
+      if (!targetUid) return;
+      await setDoc(doc(db, 'bans', targetUid), {
+        active: true,
+        name: targetName || '',
+        reason: reason || '',
+        until: Date.now() + 5 * 60 * 1000,
+        bannedAt: Date.now()
+      });
+    };
+
+    window.listBans = async function() {
+      try {
+        var snap = await getDocs(collection(db, 'bans'));
+        var arr = [];
+        snap.forEach((d) => {
+          var data = d.data() || {};
+          if (data.active && Date.now() < (Number(data.until) || 0)) {
+            arr.push({ uid: d.id, name: data.name || '', reason: data.reason || '', until: Number(data.until) || 0 });
+          } else {
+            // 期限切れのものは掃除
+            try { deleteDoc(doc(db, 'bans', d.id)); } catch (e) {}
+          }
+        });
+        arr.sort(function(a, b) { return b.until - a.until; });
+        return arr;
+      } catch (e) {
+        console.warn('listBans error:', e);
+        return [];
+      }
+    };
+
+    window.unbanPlayer = async function(uid) {
+      try { await deleteDoc(doc(db, 'bans', uid)); } catch (e) {}
+    };
   </script>
 
   <style>
@@ -270,6 +370,26 @@
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
+
+    .admin-warning-box { width: 60%; background: rgba(0,0,0,0.4); border: 2px solid rgba(0,0,0,0.8); padding: 0.8rem 1rem; color: #ffaa00; font-size: 0.75rem; text-align: center; text-shadow: 2px 2px 0 rgba(0,0,0,0.8); }
+    .admin-player-list { width: 60%; height: 28vh; background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(0, 0, 0, 0.8); display: flex; flex-direction: column; justify-content: flex-start; align-items: center; color: #aaa; font-size: 0.8rem; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8); overflow-y: auto; padding: 10px; gap: 8px; box-sizing: border-box; }
+    .admin-player-item { width: 95%; background: rgba(0, 0, 0, 0.6); border: 2px solid rgba(0, 0, 0, 0.9); padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; color: white; box-sizing: border-box; gap: 10px; }
+    .admin-player-item:hover { border-color: rgba(255, 255, 255, 0.5); }
+    .admin-player-name { flex: 1; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-player-name small { display: block; color: #888; font-size: 0.6rem; }
+    .btn-kick { background: #8b3a3a !important; width: auto !important; padding: 0.4rem 0.8rem !important; font-size: 0.75rem !important; margin-bottom: 0 !important; flex-shrink: 0; }
+    .btn-kick:hover { background: #c94c4c !important; }
+    .btn-unban { background: #4a7a4a !important; width: auto !important; padding: 0.4rem 0.8rem !important; font-size: 0.75rem !important; margin-bottom: 0 !important; flex-shrink: 0; }
+    .btn-unban:hover { background: #5da35d !important; }
+    .admin-section-title { width: 60%; text-align: left; color: #ddd; font-size: 0.85rem; margin-top: 0.5rem; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8); }
+    #admin-message { width: 60%; min-height: 1rem; font-size: 0.75rem; color: #55ff55; text-shadow: 2px 2px 0 rgba(0,0,0,0.8); text-align: center; }
+
+    #maintenance-overlay { position: fixed; inset: 0; background: #1a1a1a; z-index: 3000; display: none; justify-content: center; align-items: center; }
+    #maintenance-overlay .maint-box { color: #fff; text-shadow: 2px 2px 0 rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; gap: 1rem; text-align: center; padding: 1rem; }
+    #maintenance-overlay .maint-icon { width: 64px; height: 64px; background: #facc0d; border: 3px solid #000; display: flex; justify-content: center; align-items: center; font-size: 2rem; font-weight: bold; color: #000; text-shadow: none; }
+
+    #kicked-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 3000; display: none; justify-content: center; align-items: center; }
+    #kicked-overlay .kicked-box { color: #fff; text-shadow: 2px 2px 0 rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; gap: 1rem; text-align: center; padding: 1rem; }
 
     #auto-connect-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; display: flex; justify-content: center; align-items: center; }
     #auto-connect-overlay .connect-box { color: #fff; font-size: 1rem; text-shadow: 2px 2px 0 rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
@@ -474,10 +594,41 @@
           <button class="btn-minecraft" id="btn-go-skin">スキン...</button>
           <button class="btn-minecraft" id="btn-go-account">アカウント...</button>
         </div>
+        <div class="settings-row" id="admin-settings-row" style="display:none;">
+          <button class="btn-minecraft" id="btn-go-admin" style="background:#8b3a3a; box-shadow: inset 3px 3px 0 rgba(255,255,255,0.35), inset -3px -3px 0 rgba(0,0,0,0.5);">管理者...</button>
+        </div>
       </div>
 
       <div class="settings-single-col">
         <button class="btn-minecraft" id="btn-settings-back" data-key="done">完了</button>
+      </div>
+    </div>
+
+    <!-- 管理者画面（koropon専用） -->
+    <div id="admin-menu" class="screen settings-screen">
+      <div class="screen-title">管理者</div>
+
+      <div class="admin-warning-box">ここでの操作は全プレイヤーに即時反映されます</div>
+
+      <div class="setting-item-box" style="width:60%;">
+        <label id="maintenance-label" style="color:#ddd; font-size:0.9rem;">メンテナンス: オフ</label>
+        <button class="btn-minecraft" id="btn-toggle-maintenance" style="margin-bottom:0;">メンテナンス: オフ</button>
+      </div>
+
+      <div class="admin-section-title">追放中のプレイヤー（5分後に自動解除）</div>
+      <div class="admin-player-list" id="admin-ban-list">
+        <div id="no-ban-text" style="color:#888; font-size:0.75rem;">追放中のプレイヤーはいません</div>
+      </div>
+
+      <div class="admin-section-title">全プレイヤー一覧（追放できます）</div>
+      <div class="admin-player-list" id="admin-player-list">
+        <div id="no-player-text" style="color:#888; font-size:0.75rem;">プレイヤーがいません</div>
+      </div>
+
+      <div id="admin-message"></div>
+
+      <div class="settings-single-col">
+        <button class="btn-minecraft" id="btn-admin-back" data-key="done">完了</button>
       </div>
     </div>
 
@@ -584,6 +735,24 @@
       </div>
 
       <div id="account-message" style="margin-top:0.5rem; font-size:0.8rem; color:#ff8888; text-shadow:2px 2px 0 rgba(0,0,0,0.8); min-height:1rem;"></div>
+    </div>
+  </div>
+
+  <!-- メンテナンス画面（全員に表示。koroponだけ回避できる） -->
+  <div id="maintenance-overlay">
+    <div class="maint-box">
+      <div class="maint-icon">!</div>
+      <div style="font-size:1.2rem;">メンテナンス中</div>
+      <div style="font-size:0.8rem; color:#aaa;">ただいまメンテナンス中です。<br>プレイはしばらくお待ちください。</div>
+      <div id="maintenance-admin-note" style="display:none; font-size:0.7rem; color:#ffaa00;">管理者としてメンテナンスを回避しています</div>
+    </div>
+  </div>
+
+  <!-- 追放画面（5分間プレイ不可） -->
+  <div id="kicked-overlay">
+    <div class="kicked-box">
+      <div style="font-size:1.2rem; color:#ff5555;">追放されました</div>
+      <div style="font-size:0.85rem;">このワールドから強制的に追放されました。<br>あと <span id="kicked-remaining" style="color:#ffaa00;">5:00</span> はプレイできません。</div>
     </div>
   </div>
 
@@ -762,6 +931,9 @@
       }
       startWatchingWorlds();
       startWatchingMultiplayerCount();
+      startAdminSystem();
+      startMaintenanceWatcher();
+      startBanWatcher();
       hideOverlay();
       _currentPassword = localStorage.getItem('mc_pw_hint') || '';
       if (_currentPassword) showTopRightPassword(_currentPassword);
@@ -780,6 +952,11 @@
       hideTopRightPassword();
       showOverlayLogin('', false);
       if (typeof updateAccountStatus === 'function') updateAccountStatus();
+      stopMaintenanceWatcher();
+      stopBanWatcher();
+      maintenanceOverlay.style.display = 'none';
+      kickedOverlay.style.display = 'none';
+      if (kickTimerInterval) { clearInterval(kickTimerInterval); kickTimerInterval = null; }
     });
 
     function startWatchingWorlds() {
@@ -877,8 +1054,15 @@
     document.getElementById('btn-go-create').addEventListener('click', () => changeScreen(createMenu));
     document.getElementById('btn-create-back').addEventListener('click', () => changeScreen(singleMenu));
 
-    document.getElementById('btn-play-world').addEventListener('click', () => {
+    document.getElementById('btn-play-world').addEventListener('click', async () => {
       if (selectedWorldIndex !== null && worlds[selectedWorldIndex]) {
+        // メンテナンス中は管理者以外プレイできない
+        if (!isAdminUser() && maintenanceState) { showMaintenanceOverlay(); return; }
+        // 追放中（5分ロック）ならプレイできない
+        if (firebaseUid) {
+          const ban = await window.checkBanStatus(firebaseUid);
+          if (ban) { showKickedOverlay(ban); return; }
+        }
         document.getElementById('greeting-message').textContent = "やあ！";
         try {
           localStorage.setItem('mc_selected_world', JSON.stringify(worlds[selectedWorldIndex]));
@@ -890,6 +1074,13 @@
 
     async function connectToMultiplayerServer(srv) {
       if (!srv) return;
+      // メンテナンス中は管理者以外接続できない
+      if (!isAdminUser() && maintenanceState) { showMaintenanceOverlay(); return; }
+      // ログイン中アカウントが追放（5分ロック）されていたら接続をブロック
+      if (firebaseUid) {
+        const ban = await window.checkBanStatus(firebaseUid);
+        if (ban) { showKickedOverlay(ban); return; }
+      }
       const pName = savedDisplayName || _currentPassword || ('Player_' + Math.floor(Math.random() * 9000 + 1000));
       var room;
       try {
@@ -1307,6 +1498,229 @@
       }
     });
 
+    // ============ 管理者機能（koropon専用） ============
+    const adminMenu = document.getElementById('admin-menu');
+    const btnGoAdmin = document.getElementById('btn-go-admin');
+    const btnToggleMaintenance = document.getElementById('btn-toggle-maintenance');
+    const maintenanceLabel = document.getElementById('maintenance-label');
+    const adminMessage = document.getElementById('admin-message');
+    const maintenanceOverlay = document.getElementById('maintenance-overlay');
+    const kickedOverlay = document.getElementById('kicked-overlay');
+    let maintenanceState = false;
+    let maintenanceUnsub = null;
+    let banUnsub = null;
+    let kickTimerInterval = null;
+
+    function isAdminUser() {
+      return !!firebaseUid && _currentPassword === 'koropon';
+    }
+
+    function setAdminMessage(text, isError) {
+      adminMessage.textContent = text || '';
+      adminMessage.style.color = isError ? '#ff8888' : '#55ff55';
+    }
+
+    // ログインパスワードから管理者かどうかを判定して設定へボタンを表示
+    function updateAdminVisibility() {
+      document.getElementById('admin-settings-row').style.display = isAdminUser() ? 'flex' : 'none';
+      if (!isAdminUser() && adminMenu.style.display === 'flex') changeScreen(settingsMenu);
+    }
+
+    function showMaintenanceOverlay() {
+      const isAdmin = isAdminUser();
+      document.getElementById('maintenance-admin-note').style.display = isAdmin ? 'block' : 'none';
+      if (!isAdmin) maintenanceOverlay.style.display = 'flex';
+    }
+
+    function hideMaintenanceOverlay() {
+      maintenanceOverlay.style.display = 'none';
+    }
+
+    function startMaintenanceWatcher() {
+      if (maintenanceUnsub || typeof window.watchSystemSettings !== 'function') return;
+      maintenanceUnsub = window.watchSystemSettings((data) => {
+        maintenanceState = !!data.maintenance;
+        updateMaintenanceButton();
+        if (maintenanceState) showMaintenanceOverlay(); else hideMaintenanceOverlay();
+      });
+    }
+
+    function stopMaintenanceWatcher() {
+      if (maintenanceUnsub) {
+        try { maintenanceUnsub(); } catch (e) {}
+        maintenanceUnsub = null;
+      }
+      maintenanceState = false;
+      updateMaintenanceButton();
+    }
+
+    function startBanWatcher() {
+      if (banUnsub || !firebaseUid || typeof window.watchBanForMe !== 'function') return;
+      banUnsub = window.watchBanForMe(firebaseUid, (ban) => {
+        if (ban) {
+          // プレイ中でも強制的に追放画面を出す
+          showKickedOverlay(ban);
+        } else {
+          kickedOverlay.style.display = 'none';
+          if (kickTimerInterval) { clearInterval(kickTimerInterval); kickTimerInterval = null; }
+        }
+      });
+    }
+
+    function stopBanWatcher() {
+      if (banUnsub) {
+        try { banUnsub(); } catch (e) {}
+        banUnsub = null;
+      }
+    }
+
+    function updateMaintenanceButton() {
+      const label = maintenanceState ? 'メンテナンス: オン' : 'メンテナンス: オフ';
+      btnToggleMaintenance.textContent = label;
+      maintenanceLabel.textContent = label;
+      btnToggleMaintenance.style.background = maintenanceState ? '#4a7a4a' : '#8b3a3a';
+    }
+
+    btnToggleMaintenance.addEventListener('click', async () => {
+      try {
+        await window.setSystemMaintenance(!maintenanceState);
+        setAdminMessage(maintenanceState ? 'メンテナンスをオフにしました' : 'メンテナンスをオンにしました');
+      } catch (e) {
+        setAdminMessage('メンテナンスの切り替えに失敗しました', true);
+      }
+    });
+
+    function showKickedOverlay(ban) {
+      const remainingEl = document.getElementById('kicked-remaining');
+      kickedOverlay.style.display = 'flex';
+      function tick() {
+        const ms = ban.until - Date.now();
+        if (ms <= 0) {
+          kickedOverlay.style.display = 'none';
+          if (kickTimerInterval) { clearInterval(kickTimerInterval); kickTimerInterval = null; }
+          return;
+        }
+        const totalSec = Math.ceil(ms / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        remainingEl.textContent = m + ':' + String(s).padStart(2, '0');
+      }
+      tick();
+      if (kickTimerInterval) clearInterval(kickTimerInterval);
+      kickTimerInterval = setInterval(tick, 1000);
+    }
+
+    function remainingText(until) {
+      const ms = until - Date.now();
+      if (ms <= 0) return '解除済み';
+      const totalSec = Math.ceil(ms / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return '残り ' + m + ':' + String(s).padStart(2, '0');
+    }
+
+    async function renderAdminLists() {
+      if (!isAdminUser()) return;
+      // 全プレイヤー一覧（uidごと）
+      const playerList = document.getElementById('admin-player-list');
+      playerList.innerHTML = '';
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        let count = 0;
+        for (const userDoc of snap.docs) {
+          let ownerName = '';
+          try {
+            const profSnap = await getDoc(doc(db, 'users', userDoc.id, 'profile'));
+            if (profSnap.exists()) ownerName = (profSnap.data() || {}).displayName || '';
+          } catch (e) {}
+          const isSelf = userDoc.id === firebaseUid;
+          const item = document.createElement('div');
+          item.className = 'admin-player-item';
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'admin-player-name';
+          nameSpan.innerHTML = (ownerName || '(名前未設定)') + (isSelf ? ' <span style="color:#55ff55;">[あなた]</span>' : '') +
+            '<small>UID: ' + userDoc.id + '</small>';
+          const kickBtn = document.createElement('button');
+          kickBtn.className = 'btn-minecraft btn-kick';
+          kickBtn.textContent = '追放';
+          kickBtn.disabled = isSelf;
+          if (isSelf) kickBtn.style.opacity = '0.4';
+          kickBtn.addEventListener('click', async () => {
+            if (confirm((ownerName || 'このプレイヤー') + ' を5分間追放しますか？')) {
+              try {
+                await window.kickPlayerByUid(userDoc.id, ownerName, '管理者による追放');
+                setAdminMessage((ownerName || userDoc.id) + ' を追放しました（5分間）');
+                renderAdminLists();
+              } catch (e) {
+                setAdminMessage('追放に失敗しました', true);
+              }
+            }
+          });
+          item.appendChild(nameSpan);
+          item.appendChild(kickBtn);
+          playerList.appendChild(item);
+          count++;
+        }
+        if (count === 0) {
+          playerList.innerHTML = '<div id="no-player-text" style="color:#888; font-size:0.75rem;">プレイヤーがいません</div>';
+        }
+      } catch (e) {
+        playerList.innerHTML = '<div style="color:#ff8888; font-size:0.75rem;">一覧の取得に失敗しました</div>';
+      }
+
+      // 追放中リスト
+      const banList = document.getElementById('admin-ban-list');
+      banList.innerHTML = '';
+      try {
+        const bans = await window.listBans();
+        if (bans.length === 0) {
+          banList.innerHTML = '<div id="no-ban-text" style="color:#888; font-size:0.75rem;">追放中のプレイヤーはいません</div>';
+        } else {
+          bans.forEach((b) => {
+            const item = document.createElement('div');
+            item.className = 'admin-player-item';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'admin-player-name';
+            nameSpan.innerHTML = (b.name || '(名前未設定)') + ' <span style="color:#ffaa00;">' + remainingText(b.until) + '</span>' +
+              '<small>UID: ' + b.uid + '</small>';
+            const unbanBtn = document.createElement('button');
+            unbanBtn.className = 'btn-minecraft btn-unban';
+            unbanBtn.textContent = '解除';
+            unbanBtn.addEventListener('click', async () => {
+              try {
+                await window.unbanPlayer(b.uid);
+                setAdminMessage((b.name || b.uid) + ' の追放を解除しました');
+                renderAdminLists();
+              } catch (e) {
+                setAdminMessage('解除に失敗しました', true);
+              }
+            });
+            item.appendChild(nameSpan);
+            item.appendChild(unbanBtn);
+            banList.appendChild(item);
+          });
+          // 残り時間表示を30秒ごとに更新
+          setTimeout(() => { if (isAdminUser() && adminMenu.style.display === 'flex') renderAdminLists(); }, 30000);
+        }
+      } catch (e) {
+        banList.innerHTML = '<div style="color:#ff8888; font-size:0.75rem;">一覧の取得に失敗しました</div>';
+      }
+    }
+
+    function startAdminSystem() {
+      updateAdminVisibility();
+    }
+
+    btnGoAdmin.addEventListener('click', () => {
+      if (!isAdminUser()) return;
+      updateMaintenanceButton();
+      setAdminMessage('');
+      renderAdminLists();
+      changeScreen(adminMenu);
+    });
+
+    document.getElementById('btn-admin-back').addEventListener('click', () => changeScreen(settingsMenu));
+
     document.getElementById('sound-slider').addEventListener('input', (e) => {
       document.getElementById('sound-label').textContent = currentLang === 'ja' ? `マスター音量: ${e.target.value}%` : `Master Volume: ${e.target.value}%`;
     });
@@ -1316,6 +1730,14 @@
       document.getElementById('brightness-label').textContent = currentLang === 'ja' ? `明るさ: ${val}%` : `Brightness: ${val}%`;
       document.body.style.filter = `brightness(${val / 100})`;
     });
+
+    // adminMenu を画面切り替え対象に追加（changeScreen は上で定義済みだがここで拡張する）
+    const _origChangeScreen = changeScreen;
+    changeScreen = function(target) {
+      const screens = [mainMenu, singleMenu, multiMenu, realmsMenu, createMenu, loadingMenu, editMenu, deleteMenu, settingsMenu, soundMenu, videoMenu, langMenu, brightnessMenu, accountMenu, skinMenu, adminMenu];
+      screens.forEach(s => s.style.display = 'none');
+      target.style.display = 'flex';
+    };
 
     const btnGraphics = document.getElementById('btn-graphics');
     btnGraphics.addEventListener('click', () => {
@@ -1395,5 +1817,6 @@
       });
     });
   </script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>
