@@ -9,274 +9,224 @@
   <meta property="og:description" content="Minecraft Menu with singleplayer and multiplayer options" />
   <link href="https://fonts.cdnfonts.com/css/minecraftia" rel="stylesheet">
 
-  <!-- Firebase v12 (モジュール) 初期化スクリプト -->
+  <!-- Supabase 初期化スクリプト -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
-    import {
-      getFirestore,
-      collection,
-      doc,
-      addDoc,
-      setDoc,
-      updateDoc,
-      deleteDoc,
-      getDoc,
-      onSnapshot,
-      query,
-      orderBy,
-      getDocs,
-      serverTimestamp
-    } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyCGtbyyuNyh_hDvolfSMaPDJpSU2eIOzgw",
-      authDomain: "my-minecraft-1d602.firebaseapp.com",
-      projectId: "my-minecraft-1d602",
-      storageBucket: "my-minecraft-1d602.firebasestorage.app",
-      messagingSenderId: "306797977030",
-      appId: "1:306797977030:web:86aa5bc4381d1476ff26c7"
+    const SUPABASE_URL = "https://ohotiuftcatrweitdban.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_OKPrvhrPs9JiZnnZ0sc_BA_Sc8sdjlj";
+    const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+    window._firebase = { supabase, uid: null, displayName: null };
+
+    function authError(e) {
+      if (!e) return e;
+      if (e.code === 'invalid_credentials') e.code = 'auth/invalid-credential';
+      if (e.code === 'email_not_confirmed') e.code = 'auth/email-not-confirmed';
+      return e;
+    }
+
+    window.doEmailLogin = async function(email, password) {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw authError(error);
+      return data;
     };
 
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    
-    // ログイン状態をブラウザに永続化する設定を追加
-    setPersistence(auth, browserLocalPersistence).catch((error) => {
-      console.error("Persistence error:", error);
-    });
-
-    const db = getFirestore(app);
-
-    window._firebase = {
-      auth,
-      db,
-      uid: null,
-      displayName: null
+    window.doEmailRegister = async function(email, password) {
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) throw authError(error);
+      return data;
     };
 
-    window.doEmailLogin = function(email, password) {
-      return signInWithEmailAndPassword(auth, email, password);
-    };
+    window.doLogout = function() { return supabase.auth.signOut(); };
 
-    window.doEmailRegister = function(email, password) {
-      return createUserWithEmailAndPassword(auth, email, password);
-    };
-
-    window.doLogout = function() {
-      return signOut(auth);
-    };
-
-    onAuthStateChanged(auth, (user) => {
-      if (user && !user.isAnonymous) {
-        window._firebase.uid = user.uid;
-        window.dispatchEvent(new CustomEvent('firebase-ready', { detail: { uid: user.uid } }));
+    supabase.auth.onAuthStateChange((event, session) => {
+      const user = session && session.user ? session.user : null;
+      if (user && !user.is_anonymous) {
+        window._firebase.uid = user.id;
+        window.dispatchEvent(new CustomEvent('firebase-ready', { detail: { uid: user.id } }));
       } else {
         window._firebase.uid = null;
         window.dispatchEvent(new CustomEvent('firebase-signed-out'));
       }
     });
 
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const user = data && data.session ? data.session.user : null;
+        if (user && !user.is_anonymous) {
+          window._firebase.uid = user.id;
+          window.dispatchEvent(new CustomEvent('firebase-ready', { detail: { uid: user.id } }));
+        }
+      } catch (e) { console.warn('Supabase session error:', e); }
+    })();
+
+    function rowWorld(r) {
+      return {
+        id: r.id,
+        name: r.name || '無題',
+        structuresEnabled: r.structures_enabled !== undefined ? r.structures_enabled : true,
+        gameMode: r.game_mode || 'survival',
+        worldType: r.world_type || 'default',
+        createdAt: r.created_at_ms || Date.now(),
+        ownerName: r.owner_name || null
+      };
+    }
+
     window.watchWorlds = function(uid, onChange) {
-      if (!uid) {
-        console.warn("watchWorlds called without uid");
-        return () => {};
-      }
-      const colRef = collection(db, 'users', uid, 'worlds');
-      const q = query(colRef, orderBy('createdAt'));
-      const unsub = onSnapshot(q, (snapshot) => {
-        const arr = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() || {};
-          arr.push({
-            id: docSnap.id,
-            name: data.name || '無題',
-            structuresEnabled: data.structuresEnabled !== undefined ? data.structuresEnabled : true,
-            gameMode: data.gameMode || 'survival',
-            worldType: data.worldType || 'default',
-            createdAt: data.createdAt && data.createdAt.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
-            ownerName: data.ownerName || null
-          });
-        });
-        onChange(arr);
-      }, (err) => {
-        console.error("watchWorlds onSnapshot error:", err);
-        onChange([]);
-      });
-      return unsub;
+      if (!uid) return () => {};
+      let active = true;
+      const channel = supabase.channel('worlds-' + uid + '-' + Math.random().toString(36).slice(2));
+      const refresh = async () => {
+        const { data, error } = await supabase.from('worlds').select('*').eq('user_id', uid).order('created_at_ms', { ascending: true });
+        if (!active) return;
+        if (error) { console.error('watchWorlds error:', error); onChange([]); return; }
+        onChange((data || []).map(rowWorld));
+      };
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'worlds', filter: 'user_id=eq.' + uid }, refresh).subscribe();
+      refresh();
+      return () => { active = false; supabase.removeChannel(channel); };
     };
 
     window.createWorldRemote = async function(uid, worldName, ownerName, meta) {
       if (!uid) return null;
-      const colRef = collection(db, 'users', uid, 'worlds');
-      const newDocRef = await addDoc(colRef, {
-        name: worldName,
-        ownerName: ownerName || null,
-        structuresEnabled: meta && meta.structuresEnabled !== undefined ? meta.structuresEnabled : true,
-        gameMode: meta && meta.gameMode ? meta.gameMode : 'survival',
-        worldType: meta && meta.worldType ? meta.worldType : 'default',
-        createdAt: serverTimestamp()
-      });
-      return newDocRef.id;
+      const id = 'world_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+      const row = {
+        id, user_id: uid, name: worldName, owner_name: ownerName || null,
+        structures_enabled: meta && meta.structuresEnabled !== undefined ? meta.structuresEnabled : true,
+        game_mode: meta && meta.gameMode ? meta.gameMode : 'survival',
+        world_type: meta && meta.worldType ? meta.worldType : 'default',
+        created_at_ms: Date.now()
+      };
+      const { error } = await supabase.from('worlds').insert(row);
+      if (error) throw error;
+      return id;
     };
 
     window.updateWorldRemote = async function(uid, id, newName) {
       if (!uid) return;
-      const docRef = doc(db, 'users', uid, 'worlds', id);
-      await updateDoc(docRef, { name: newName });
+      const { error } = await supabase.from('worlds').update({ name: newName }).eq('user_id', uid).eq('id', id);
+      if (error) throw error;
     };
 
     window.deleteWorldRemote = async function(uid, id) {
       if (!uid) return;
-      const docRef = doc(db, 'users', uid, 'worlds', id);
-      await deleteDoc(docRef);
+      const { error } = await supabase.from('worlds').delete().eq('user_id', uid).eq('id', id);
+      if (error) throw error;
     };
 
     window.saveOwnerName = async function(uid, ownerName) {
       if (!uid) return;
-      const docRef = doc(db, 'users', uid, 'profile');
-      await setDoc(docRef, { displayName: ownerName }, { merge: true });
+      const { error } = await supabase.from('profiles').upsert({ id: uid, display_name: ownerName || '', updated_at_ms: Date.now() }, { onConflict: 'id' });
+      if (error) throw error;
     };
 
-    // Multiplayer room helper. The server address is the room identity.
     function multiplayerRoomId(address) {
       var str = String(address || 'default-room');
       var h = 2166136261;
-      for (var i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-      }
+      for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
       return 'room_' + (h >>> 0).toString(36);
     }
 
     window.prepareMultiplayerRoom = async function(address) {
       var roomId = multiplayerRoomId(address);
-      var roomRef = doc(db, 'multiplayerRooms', roomId);
-      var snap = await getDoc(roomRef);
-      if (snap.exists()) {
-        var data = snap.data() || {};
-        return { roomId: roomId, seed: Number(data.seed) || 123456789 };
-      }
-      // Deterministic seed from the room id: every client joining the same server
-      // gets the exact same base terrain, even if they join at different times.
+      const { data: existing, error: readError } = await supabase.from('multiplayer_rooms').select('*').eq('id', roomId).maybeSingle();
+      if (readError) throw readError;
+      if (existing) return { roomId: roomId, seed: Number(existing.seed) || 123456789 };
       var seed = 0;
       for (var i = 0; i < roomId.length; i++) seed = (Math.imul(seed, 31) + roomId.charCodeAt(i)) | 0;
       seed = Math.abs(seed) || 123456789;
-      await setDoc(roomRef, {
-        address: String(address || 'default-room'),
-        seed: seed,
-        createdAt: serverTimestamp()
-      }, { merge: true });
+      const { error } = await supabase.from('multiplayer_rooms').upsert({ id: roomId, address: String(address || 'default-room'), seed: seed, created_at_ms: Date.now() }, { onConflict: 'id' });
+      if (error) throw error;
       return { roomId: roomId, seed: seed };
     };
 
     window.watchMultiplayerPlayers = function(address, onChange) {
       var roomId = multiplayerRoomId(address);
-      var colRef = collection(db, 'multiplayerRooms', roomId, 'players');
-      return onSnapshot(colRef, (snapshot) => {
-        onChange(snapshot ? snapshot.size : 0);
-      }, (err) => {
-        console.warn("watchMultiplayerPlayers error:", err);
-      });
+      let active = true;
+      const channel = supabase.channel('menu-players-' + roomId + '-' + Math.random().toString(36).slice(2));
+      const refresh = async () => {
+        const { count, error } = await supabase.from('multiplayer_players').select('id', { count: 'exact', head: true }).eq('room_id', roomId);
+        if (active && !error) onChange(count || 0);
+      };
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'multiplayer_players', filter: 'room_id=eq.' + roomId }, refresh).subscribe();
+      refresh();
+      return () => { active = false; supabase.removeChannel(channel); };
     };
 
-    // ============ 管理者機能（koropon専用） ============
     window.fetchSystemSettings = async function() {
       try {
-        var snap = await getDoc(doc(db, 'system', 'settings'));
-        return snap.exists() ? (snap.data() || {}) : {};
-      } catch (e) {
-        console.warn('fetchSystemSettings error:', e);
-        return {};
-      }
+        const { data, error } = await supabase.from('system_settings').select('*').eq('id', 'settings').maybeSingle();
+        if (error || !data) return {};
+        return { maintenance: !!data.maintenance, maintenanceUpdatedAt: data.maintenance_updated_at_ms || 0 };
+      } catch (e) { console.warn('fetchSystemSettings error:', e); return {}; }
     };
 
     window.setSystemMaintenance = async function(enabled) {
-      await setDoc(doc(db, 'system', 'settings'), {
-        maintenance: !!enabled,
-        maintenanceUpdatedAt: serverTimestamp()
-      }, { merge: true });
+      const { error } = await supabase.from('system_settings').upsert({ id: 'settings', maintenance: !!enabled, maintenance_updated_at_ms: Date.now() }, { onConflict: 'id' });
+      if (error) throw error;
     };
 
     window.watchSystemSettings = function(onChange) {
-      return onSnapshot(doc(db, 'system', 'settings'), (snap) => {
-        onChange(snap.exists() ? (snap.data() || {}) : {});
-      }, (err) => {
-        console.warn('watchSystemSettings error:', err);
-      });
+      let active = true;
+      const channel = supabase.channel('system-settings-' + Math.random().toString(36).slice(2));
+      const refresh = async () => {
+        const { data } = await supabase.from('system_settings').select('*').eq('id', 'settings').maybeSingle();
+        if (active) onChange(data ? { maintenance: !!data.maintenance, maintenanceUpdatedAt: data.maintenance_updated_at_ms || 0 } : {});
+      };
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'system_settings', filter: 'id=eq.settings' }, refresh).subscribe();
+      refresh();
+      return () => { active = false; supabase.removeChannel(channel); };
     };
 
-    // 追放されている（＝5分ロック中）かどうかを調べる。されていなければ null。
     window.checkBanStatus = async function(uid) {
       if (!uid) return null;
       try {
-        var snap = await getDoc(doc(db, 'bans', uid));
-        if (!snap.exists()) return null;
-        var data = snap.data() || {};
-        if (!data.active) return null;
-        var until = Number(data.until) || 0;
-        if (Date.now() >= until) {
-          // 5分経過したので自動的に解除
-          try { await deleteDoc(doc(db, 'bans', uid)); } catch (e) {}
-          return null;
-        }
-        return {
-          until: until,
-          remainingMs: until - Date.now(),
-          reason: data.reason || ''
-        };
-      } catch (e) {
-        console.warn('checkBanStatus error:', e);
-        return null;
-      }
+        const { data, error } = await supabase.from('bans').select('*').eq('uid', uid).maybeSingle();
+        if (error || !data || !data.active) return null;
+        const until = Number(data.until_ms) || 0;
+        if (Date.now() >= until) { await supabase.from('bans').delete().eq('uid', uid); return null; }
+        return { until, remainingMs: until - Date.now(), reason: data.reason || '' };
+      } catch (e) { console.warn('checkBanStatus error:', e); return null; }
     };
 
     window.watchBanForMe = function(uid, onChange) {
       if (!uid) return () => {};
-      return onSnapshot(doc(db, 'bans', uid), (snap) => {
-        if (!snap.exists()) { onChange(null); return; }
-        var data = snap.data() || {};
-        if (!data.active || Date.now() >= (Number(data.until) || 0)) { onChange(null); return; }
-        onChange({ until: Number(data.until) || 0, reason: data.reason || '' });
-      }, (err) => {
-        console.warn('watchBanForMe error:', err);
-      });
+      let active = true;
+      const refresh = async () => { const ban = await window.checkBanStatus(uid); if (active) onChange(ban); };
+      const channel = supabase.channel('ban-' + uid + '-' + Math.random().toString(36).slice(2));
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'bans', filter: 'uid=eq.' + uid }, refresh).subscribe();
+      refresh();
+      return () => { active = false; supabase.removeChannel(channel); };
     };
 
     window.kickPlayerByUid = async function(targetUid, targetName, reason) {
       if (!targetUid) return;
-      await setDoc(doc(db, 'bans', targetUid), {
-        active: true,
-        name: targetName || '',
-        reason: reason || '',
-        until: Date.now() + 5 * 60 * 1000,
-        bannedAt: Date.now()
-      });
+      const { error } = await supabase.from('bans').upsert({ uid: targetUid, active: true, name: targetName || '', reason: reason || '', until_ms: Date.now() + 5 * 60 * 1000, banned_at_ms: Date.now() }, { onConflict: 'uid' });
+      if (error) throw error;
     };
 
     window.listBans = async function() {
       try {
-        var snap = await getDocs(collection(db, 'bans'));
-        var arr = [];
-        snap.forEach((d) => {
-          var data = d.data() || {};
-          if (data.active && Date.now() < (Number(data.until) || 0)) {
-            arr.push({ uid: d.id, name: data.name || '', reason: data.reason || '', until: Number(data.until) || 0 });
-          } else {
-            // 期限切れのものは掃除
-            try { deleteDoc(doc(db, 'bans', d.id)); } catch (e) {}
-          }
-        });
-        arr.sort(function(a, b) { return b.until - a.until; });
+        const { data, error } = await supabase.from('bans').select('*');
+        if (error) return [];
+        const arr = [];
+        for (const d of data || []) {
+          const until = Number(d.until_ms) || 0;
+          if (d.active && Date.now() < until) arr.push({ uid: d.uid, name: d.name || '', reason: d.reason || '', until });
+          else supabase.from('bans').delete().eq('uid', d.uid).catch(() => {});
+        }
+        arr.sort((a,b) => b.until - a.until);
         return arr;
-      } catch (e) {
-        console.warn('listBans error:', e);
-        return [];
-      }
+      } catch (e) { console.warn('listBans error:', e); return []; }
     };
 
-    window.unbanPlayer = async function(uid) {
-      try { await deleteDoc(doc(db, 'bans', uid)); } catch (e) {}
+    window.unbanPlayer = async function(uid) { try { await supabase.from('bans').delete().eq('uid', uid); } catch (e) {} };
+    window.listProfiles = async function() {
+      const { data, error } = await supabase.from('profiles').select('id,display_name').order('created_at_ms', { ascending: true });
+      if (error) throw error;
+      return data || [];
     };
   </script>
 
@@ -1625,14 +1575,10 @@
       const playerList = document.getElementById('admin-player-list');
       playerList.innerHTML = '';
       try {
-        const snap = await getDocs(collection(db, 'users'));
+        const profiles = await window.listProfiles();
         let count = 0;
-        for (const userDoc of snap.docs) {
-          let ownerName = '';
-          try {
-            const profSnap = await getDoc(doc(db, 'users', userDoc.id, 'profile'));
-            if (profSnap.exists()) ownerName = (profSnap.data() || {}).displayName || '';
-          } catch (e) {}
+        for (const userDoc of profiles) {
+          let ownerName = userDoc.display_name || '';
           const isSelf = userDoc.id === firebaseUid;
           const item = document.createElement('div');
           item.className = 'admin-player-item';
