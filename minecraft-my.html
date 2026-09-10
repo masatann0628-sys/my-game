@@ -6864,29 +6864,18 @@ function clickInvFurnace() {
     init();
   </script>
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyCGtbyyuNyh_hDvolfSMaPDJpSU2eIOzgw",
-    authDomain: "my-minecraft-1d602.firebaseapp.com",
-    projectId: "my-minecraft-1d602",
-    storageBucket: "my-minecraft-1d602.firebasestorage.app",
-    messagingSenderId: "306797977030",
-    appId: "1:306797977030:web:86aa5bc4381d1476ff26c7"
-  };
+  const SUPABASE_URL = "https://ohotiuftcatrweitdban.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_OKPrvhrPs9JiZnnZ0sc_BA_Sc8sdjlj";
+  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
   const q = new URLSearchParams(location.search);
   if (q.get('mode') !== 'multi' || !q.get('room')) {
     // Multiplayer module stays completely dormant in singleplayer.
   } else {
-    const app = initializeApp(firebaseConfig, 'minecraftMultiplayer');
-    const db = getFirestore(app);
-    const auth = getAuth(app);
     const roomId = q.get('room');
     const playerName = q.get('name') || 'Player';
-    // スキン色（服・ズボン）をURLパラメータから読み込む
     function hexToRGB(hex) {
       hex = String(hex || '').replace('#', '');
       if (hex.length !== 6) return null;
@@ -6900,618 +6889,103 @@ function clickInvFurnace() {
     var DEFAULT_PANTS = [0x4a/255, 0x44/255, 0x9e/255, 1];
     var myShirtHex = q.get('shirt') || '3fb2c8';
     var myPantsHex = q.get('pants') || '4a449e';
-    const mySkin = {
-      shirt: hexToRGB(myShirtHex) || DEFAULT_SHIRT,
-      pants: hexToRGB(myPantsHex) || DEFAULT_PANTS
-    };
+    const mySkin = { shirt: hexToRGB(myShirtHex) || DEFAULT_SHIRT, pants: hexToRGB(myPantsHex) || DEFAULT_PANTS };
     const bridgeWait = () => window.__mcMPBridge && window.__mcMPBridge.enabled;
 
     let myId = localStorage.getItem('mc_mp_client_id');
-    if (!myId) {
-      myId = 'p_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-      localStorage.setItem('mc_mp_client_id', myId);
-    }
+    if (!myId) { myId = 'p_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('mc_mp_client_id', myId); }
 
-    const playersRef = collection(db, 'multiplayerRooms', roomId, 'players');
-    const blocksRef = collection(db, 'multiplayerRooms', roomId, 'blocks');
-    const roomRef = doc(db, 'multiplayerRooms', roomId);
     const remotePlayers = new Map();
     let blockUnsub = null;
     let playerUnsub = null;
     let ready = false;
     let lastPlayerWrite = 0;
     let lastLocalBlockUpload = 0;
-    const chatRef = collection(db, 'multiplayerRooms', roomId, 'chat');
     const chatMessages = [];
     let chatUnsub = null;
     let chatOpen = false;
     let leavingMultiplayer = false;
     let unreadCount = 0;
     let firstChatLoad = true;
-    function updateChatButton() {
-      mpChatButton.textContent = unreadCount > 0 ? '💬 (' + unreadCount + ')' : '💬';
-    }
-
-    // ---- Multiplayer chat UI ----
     const mpChatButton = document.createElement('button');
-    mpChatButton.type = 'button';
-    mpChatButton.textContent = '💬';
-    mpChatButton.title = 'チャット';
-    mpChatButton.setAttribute('aria-label', 'チャット');
-    mpChatButton.style.cssText =
-      'position:fixed;right:18px;top:18px;z-index:10001;width:52px;height:52px;' +
-      'border:2px solid rgba(255,255,255,.75);border-radius:12px;background:rgba(0,0,0,.58);' +
-      'color:#fff;font-size:27px;cursor:pointer;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35);';
+    function updateChatButton() { mpChatButton.textContent = unreadCount > 0 ? '💬 (' + unreadCount + ')' : '💬'; }
+    mpChatButton.type = 'button'; mpChatButton.textContent = '💬'; mpChatButton.title = 'チャット'; mpChatButton.setAttribute('aria-label', 'チャット');
+    mpChatButton.style.cssText = 'position:fixed;right:18px;top:18px;z-index:10001;width:52px;height:52px;border:2px solid rgba(255,255,255,.75);border-radius:12px;background:rgba(0,0,0,.58);color:#fff;font-size:27px;cursor:pointer;display:none;box-shadow:0 2px 8px rgba(0,0,0,.35);';
     document.body.appendChild(mpChatButton);
 
     const mpChatPanel = document.createElement('div');
-    mpChatPanel.style.cssText =
-      'position:fixed;right:18px;top:78px;z-index:10000;width:min(390px,calc(100vw - 36px));' +
-      'height:min(430px,calc(100vh - 110px));display:none;flex-direction:column;' +
-      'background:rgba(18,18,18,.94);border:2px solid rgba(255,255,255,.25);border-radius:12px;' +
-      'box-shadow:0 8px 28px rgba(0,0,0,.45);font-family:Arial,sans-serif;color:#fff;';
+    mpChatPanel.style.cssText = 'position:fixed;right:18px;top:78px;z-index:10000;width:min(390px,calc(100vw - 36px));height:min(430px,calc(100vh - 110px));display:none;flex-direction:column;background:rgba(18,18,18,.94);border:2px solid rgba(255,255,255,.25);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.45);font-family:Arial,sans-serif;color:#fff;';
     document.body.appendChild(mpChatPanel);
-
-    const mpChatTitle = document.createElement('div');
-    mpChatTitle.textContent = 'マルチプレイ チャット';
-    mpChatTitle.style.cssText = 'padding:10px 12px;font-weight:bold;border-bottom:1px solid rgba(255,255,255,.15);';
-    mpChatPanel.appendChild(mpChatTitle);
-
-    const mpChatMessages = document.createElement('div');
-    mpChatMessages.style.cssText = 'flex:1;overflow-y:auto;padding:10px 12px;line-height:1.4;font-size:14px;';
-    mpChatPanel.appendChild(mpChatMessages);
-
-    const mpChatForm = document.createElement('form');
-    mpChatForm.style.cssText = 'display:flex;gap:6px;padding:9px;border-top:1px solid rgba(255,255,255,.15);';
-    mpChatPanel.appendChild(mpChatForm);
-
-    const mpChatInput = document.createElement('input');
-    mpChatInput.type = 'text';
-    mpChatInput.maxLength = 120;
-    mpChatInput.placeholder = 'メッセージを入力…';
-    mpChatInput.autocomplete = 'off';
-    mpChatInput.style.cssText =
-      'flex:1;min-width:0;padding:9px 10px;border:1px solid #777;border-radius:7px;' +
-      'background:#222;color:#fff;outline:none;font-size:14px;';
-    mpChatForm.appendChild(mpChatInput);
-
-    const mpChatSend = document.createElement('button');
-    mpChatSend.type = 'submit';
-    mpChatSend.textContent = '送信';
-    mpChatSend.style.cssText =
-      'padding:9px 12px;border:0;border-radius:7px;background:#fff;color:#111;font-weight:bold;cursor:pointer;';
-    mpChatForm.appendChild(mpChatSend);
-
-    function renderMPChat() {
-      mpChatMessages.textContent = '';
-      chatMessages.slice(-60).forEach(m => {
-        const row = document.createElement('div');
-        row.style.cssText = 'margin-bottom:8px;word-break:break-word;';
-        const who = document.createElement('span');
-        who.textContent = String(m.name || 'Player') + ': ';
-        who.style.fontWeight = 'bold';
-        const body = document.createElement('span');
-        body.textContent = String(m.text || '');
-        row.appendChild(who);
-        row.appendChild(body);
-        mpChatMessages.appendChild(row);
-      });
-      mpChatMessages.scrollTop = mpChatMessages.scrollHeight;
-    }
-
-    function openMPChat() {
-      if (!bridgeWait()) return;
-      chatOpen = true;
-      unreadCount = 0;
-      updateChatButton();
-      mpChatMessages._lastSeen = chatMessages.length;
-      mpChatButton.style.display = 'block';
-      mpChatPanel.style.display = 'flex';
-      setTimeout(() => mpChatInput.focus(), 0);
-      renderMPChat();
-    }
-
-    function closeMPChat() {
-      chatOpen = false;
-      mpChatPanel.style.display = 'none';
-      mpChatButton.style.display = 'block';
-    }
-
-    window.__mcMPOpenChat = openMPChat;
-    mpChatButton.addEventListener('click', () => {
-      if (chatOpen) closeMPChat();
-      else openMPChat();
-    });
+    const mpChatTitle = document.createElement('div'); mpChatTitle.textContent = 'マルチプレイ チャット'; mpChatTitle.style.cssText = 'padding:10px 12px;font-weight:bold;border-bottom:1px solid rgba(255,255,255,.15);'; mpChatPanel.appendChild(mpChatTitle);
+    const mpChatMessages = document.createElement('div'); mpChatMessages.style.cssText = 'flex:1;overflow-y:auto;padding:10px 12px;line-height:1.4;font-size:14px;'; mpChatPanel.appendChild(mpChatMessages);
+    const mpChatForm = document.createElement('form'); mpChatForm.style.cssText = 'display:flex;gap:6px;padding:9px;border-top:1px solid rgba(255,255,255,.15);'; mpChatPanel.appendChild(mpChatForm);
+    const mpChatInput = document.createElement('input'); mpChatInput.type = 'text'; mpChatInput.maxLength = 120; mpChatInput.placeholder = 'メッセージを入力…'; mpChatInput.autocomplete = 'off'; mpChatInput.style.cssText = 'flex:1;min-width:0;padding:9px 10px;border:1px solid #777;border-radius:7px;background:#222;color:#fff;outline:none;font-size:14px;'; mpChatForm.appendChild(mpChatInput);
+    const mpChatSend = document.createElement('button'); mpChatSend.type = 'submit'; mpChatSend.textContent = '送信'; mpChatSend.style.cssText = 'padding:9px 12px;border:0;border-radius:7px;background:#fff;color:#111;font-weight:bold;cursor:pointer;'; mpChatForm.appendChild(mpChatSend);
+    function renderMPChat() { mpChatMessages.textContent = ''; chatMessages.slice(-60).forEach(m => { const row=document.createElement('div'); row.style.cssText='margin-bottom:8px;word-break:break-word;'; const who=document.createElement('span'); who.textContent=String(m.name||'Player')+': '; who.style.fontWeight='bold'; const body=document.createElement('span'); body.textContent=String(m.text||''); row.appendChild(who); row.appendChild(body); mpChatMessages.appendChild(row); }); mpChatMessages.scrollTop=mpChatMessages.scrollHeight; }
+    function openMPChat() { if (!bridgeWait()) return; chatOpen=true; unreadCount=0; updateChatButton(); mpChatMessages._lastSeen=chatMessages.length; mpChatButton.style.display='block'; mpChatPanel.style.display='flex'; setTimeout(()=>mpChatInput.focus(),0); renderMPChat(); }
+    function closeMPChat() { chatOpen=false; mpChatPanel.style.display='none'; mpChatButton.style.display='block'; }
+    window.__mcMPOpenChat=openMPChat;
+    mpChatButton.addEventListener('click',()=>chatOpen?closeMPChat():openMPChat());
 
     mpChatForm.addEventListener('submit', async e => {
-      e.preventDefault();
-      const value = mpChatInput.value.trim().slice(0, 120);
-      if (!value || leavingMultiplayer) return;
-
-      const messageId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-      mpChatInput.value = '';
-
-      // 先に自分の画面へ表示して、Firestore反映後に全端末で同じ履歴へ揃える
-      chatMessages.push({
-        id: messageId,
-        name: playerName,
-        text: value,
-        time: Date.now()
-      });
-      chatMessages.splice(0, Math.max(0, chatMessages.length - 60));
-      renderMPChat();
-
-      try {
-        await setDoc(doc(chatRef, messageId), {
-          name: playerName,
-          text: value,
-          senderId: myId,
-          createdAt: serverTimestamp(),
-          clientCreatedAt: Date.now()
-        });
-      } catch (err) {
-        // Firestoreの権限エラー等で保存できなかった場合は、送信失敗を明示する
-        const idx = chatMessages.findIndex(m => m.id === messageId);
-        if (idx >= 0) {
-          chatMessages[idx].text = value + '  [送信失敗]';
-          renderMPChat();
-        }
-        console.error('チャット同期失敗:', err);
-      }
+      e.preventDefault(); const value=mpChatInput.value.trim().slice(0,120); if(!value||leavingMultiplayer)return;
+      const messageId='m_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8); mpChatInput.value='';
+      chatMessages.push({id:messageId,name:playerName,text:value,time:Date.now()}); chatMessages.splice(0,Math.max(0,chatMessages.length-60)); renderMPChat();
+      try { const {error}=await supabase.from('multiplayer_chat').upsert({room_id:roomId,id:messageId,name:playerName,text:value,sender_id:myId,client_created_at:Date.now(),created_at_ms:Date.now()},{onConflict:'room_id,id'}); if(error)throw error; }
+      catch(err){ const idx=chatMessages.findIndex(m=>m.id===messageId); if(idx>=0){chatMessages[idx].text=value+'  [送信失敗]';renderMPChat();} console.error('チャット同期失敗:',err); }
     });
+    mpChatInput.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeMPChat();}e.stopPropagation();});
+    window.addEventListener('keydown',e=>{if(!bridgeWait()||leavingMultiplayer)return;if(e.key.toLowerCase()==='t'&&document.activeElement!==mpChatInput){e.preventDefault();e.stopPropagation();openMPChat();}},true);
 
-    mpChatInput.addEventListener('keydown', e => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeMPChat();
-      }
-      e.stopPropagation();
-    });
+    async function removeMyPresence(){if(leavingMultiplayer)return;leavingMultiplayer=true;try{await supabase.from('multiplayer_players').delete().eq('room_id',roomId).eq('id',myId);}catch(e){}}
+    window.__mcMPLeave=removeMyPresence; window.addEventListener('pagehide',()=>removeMyPresence()); window.addEventListener('beforeunload',()=>removeMyPresence());
 
-    window.addEventListener('keydown', e => {
-      if (!bridgeWait() || leavingMultiplayer) return;
-      if (e.key.toLowerCase() === 't' && document.activeElement !== mpChatInput) {
-        e.preventDefault();
-        e.stopPropagation();
-        openMPChat();
-      }
-    }, true);
-
-    async function removeMyPresence() {
-      if (leavingMultiplayer) return;
-      leavingMultiplayer = true;
-      try { await deleteDoc(doc(playersRef, myId)); } catch (e) {}
-    }
-    window.__mcMPLeave = removeMyPresence;
-    window.addEventListener('pagehide', () => { removeMyPresence(); });
-    window.addEventListener('beforeunload', () => { removeMyPresence(); });
-
-    async function startMultiplayer() {
+    async function startMultiplayer(){
       try {
-        try {
-          await signInAnonymously(auth);
-        } catch (e) {
-          console.error('Firebase匿名ログイン失敗:', e);
-          mpChatButton.style.display = 'block';
-          mpChatButton.title = 'Firebaseに接続できません';
-          mpChatMessages.innerHTML = '';
-          const row = document.createElement('div');
-          row.style.cssText = 'padding:8px;background:rgba(160,40,40,.35);border-radius:6px;';
-          row.textContent = 'Firebaseに接続できません。Firebase Authentication の「匿名」を有効にしてください。';
-          mpChatMessages.appendChild(row);
-          return;
-        }
+        try { const {error}=await supabase.auth.signInAnonymously(); if(error)throw error; }
+        catch(e){ console.error('Supabase匿名ログイン失敗:',e); mpChatButton.style.display='block'; mpChatButton.title='Supabaseに接続できません'; mpChatMessages.innerHTML=''; const row=document.createElement('div'); row.style.cssText='padding:8px;background:rgba(160,40,40,.35);border-radius:6px;'; row.textContent='Supabaseに接続できません。Supabase Authentication の「匿名」を有効にしてください。'; mpChatMessages.appendChild(row); return; }
 
-        // Subscribe to players.
-        // 同じ名前のプレイヤーが複数いる場合はIDの小さい1人だけを残す。
-        playerUnsub = onSnapshot(playersRef, snap => {
-          const now = Date.now();
-          const docs = [];
-          snap.forEach(ds => {
-            const d = ds.data() || {};
-            if (typeof d.x !== 'number' || typeof d.y !== 'number' || typeof d.z !== 'number') return;
-            docs.push({ id: ds.id, data: d });
-          });
+        const playerChannel=supabase.channel('players-'+roomId+'-'+Math.random().toString(36).slice(2));
+        const refreshPlayers=async()=>{
+          const {data,error}=await supabase.from('multiplayer_players').select('*').eq('room_id',roomId); if(error){console.error('プレイヤー位置同期失敗:',error);return;}
+          const now=Date.now(), docs=(data||[]).filter(d=>typeof d.x==='number'&&typeof d.y==='number'&&typeof d.z==='number');
+          const winnerByName=new Map(); docs.forEach(item=>{const name=String(item.name||'Player');const current=winnerByName.get(name);if(!current||item.id<current.id)winnerByName.set(name,item);});
+          const seen=new Set(), duplicateIds=new Set();
+          docs.forEach(item=>{const name=String(item.name||'Player');const winner=winnerByName.get(name);if(!winner||winner.id!==item.id){duplicateIds.add(item.id);return;}if(item.id===myId)return;seen.add(item.id);const d=item.data||item;const old=remotePlayers.get(item.id);remotePlayers.set(item.id,{id:item.id,name,tx:d.x,ty:d.y,tz:d.z,ry:Number(d.ry)||0,x:old?old.x:d.x,y:old?old.y:d.y,z:old?old.z:d.z,last:now,walkPhase:old?(old.walkPhase||0):0,moving:old?old.moving:false,skin:{shirt:hexToRGB(d.shirt)||DEFAULT_SHIRT,pants:hexToRGB(d.pants)||DEFAULT_PANTS},updatedAtMs:Number(d.updated_at_ms)||now});});
+          duplicateIds.forEach(id=>{remotePlayers.delete(id);supabase.from('multiplayer_players').delete().eq('room_id',roomId).eq('id',id).catch(()=>{});});
+          for(const [id,rp] of remotePlayers)if(!seen.has(id)&&now-rp.last>3500)remotePlayers.delete(id);
+        };
+        playerChannel.on('postgres_changes',{event:'*',schema:'public',table:'multiplayer_players',filter:'room_id=eq.'+roomId},refreshPlayers).subscribe(); playerUnsub=()=>supabase.removeChannel(playerChannel); await refreshPlayers();
 
-          const winnerByName = new Map();
-          docs.forEach(item => {
-            const name = String(item.data.name || 'Player');
-            const current = winnerByName.get(name);
-            if (!current || item.id < current.id) winnerByName.set(name, item);
-          });
+        const chatChannel=supabase.channel('chat-'+roomId+'-'+Math.random().toString(36).slice(2));
+        const refreshChat=async()=>{const {data,error}=await supabase.from('multiplayer_chat').select('*').eq('room_id',roomId).order('created_at_ms',{ascending:true}).limit(200);if(error){console.error('チャット受信同期失敗:',error);return;}const list=(data||[]).filter(d=>typeof d.text==='string').map(d=>({id:d.id,name:String(d.name||'Player'),text:d.text.slice(0,120),time:Number(d.created_at_ms)||Number(d.client_created_at)||0}));const serverIds=new Set(list.map(m=>m.id));const pending=chatMessages.filter(m=>!serverIds.has(m.id)&&!String(m.text).endsWith('  [送信失敗]'));chatMessages.length=0;chatMessages.push(...list.slice(-60));pending.forEach(m=>chatMessages.push(m));chatMessages.sort((a,b)=>(a.time-b.time)||a.id.localeCompare(b.id));if(chatMessages.length>60)chatMessages.splice(0,chatMessages.length-60);if(firstChatLoad){firstChatLoad=false;mpChatMessages._lastSeen=chatMessages.length;}else if(chatOpen)renderMPChat();else{var prevLen=mpChatMessages._lastSeen||0;if(chatMessages.length>prevLen){unreadCount=Math.min(99,chatMessages.length-prevLen);updateChatButton();}renderMPChat();}};
+        chatChannel.on('postgres_changes',{event:'*',schema:'public',table:'multiplayer_chat',filter:'room_id=eq.'+roomId},refreshChat).subscribe(); chatUnsub=()=>supabase.removeChannel(chatChannel); await refreshChat();
 
-          const seen = new Set();
-          const duplicateIds = new Set();
-          docs.forEach(item => {
-            const name = String(item.data.name || 'Player');
-            const winner = winnerByName.get(name);
-            if (!winner || winner.id !== item.id) {
-              duplicateIds.add(item.id);
-              return;
-            }
-            if (item.id === myId) return;
-            seen.add(item.id);
-            const d = item.data;
-            const old = remotePlayers.get(item.id);
-            remotePlayers.set(item.id, {
-              id: item.id,
-              name: name,
-              tx: d.x, ty: d.y, tz: d.z,
-              ry: Number(d.ry) || 0,
-              x: old ? old.x : d.x,
-              y: old ? old.y : d.y,
-              z: old ? old.z : d.z,
-              last: now,
-              walkPhase: old ? (old.walkPhase || 0) : 0,
-              moving: old ? old.moving : false,
-              skin: {
-                shirt: hexToRGB(d.shirt) || DEFAULT_SHIRT,
-                pants: hexToRGB(d.pants) || DEFAULT_PANTS
-              },
-              updatedAtMs: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : now
-            });
-          });
+        const blockChannel=supabase.channel('blocks-'+roomId+'-'+Math.random().toString(36).slice(2));
+        const refreshBlocks=async()=>{if(!bridgeWait())return;const {data,error}=await supabase.from('multiplayer_blocks').select('*').eq('room_id',roomId);if(error){console.error('ブロック同期失敗:',error);return;}for(const d of data||[]){const parts=String(d.key).split(',');if(parts.length!==3)continue;window.__mcMPBridge.applyRemoteBlock(Number(parts[0]),Number(parts[1]),Number(parts[2]),Number(d.block_id)||0,d.furnace_dir,d.meta);}};
+        blockChannel.on('postgres_changes',{event:'*',schema:'public',table:'multiplayer_blocks',filter:'room_id=eq.'+roomId},async payload=>{if(!bridgeWait())return;const d=payload.new||payload.old||{};const parts=String(d.key||'').split(',');if(parts.length!==3)return;if(payload.eventType==='DELETE')window.__mcMPBridge.applyRemoteBlock(Number(parts[0]),Number(parts[1]),Number(parts[2]),0,d.furnace_dir,d.meta);else window.__mcMPBridge.applyRemoteBlock(Number(parts[0]),Number(parts[1]),Number(parts[2]),Number(d.block_id)||0,d.furnace_dir,d.meta);});
+        blockChannel.subscribe(); blockUnsub=()=>supabase.removeChannel(blockChannel); await refreshBlocks();
 
-          // 重複側のドキュメントを削除。自分自身が重複側なら自分のキャラも消える。
-          duplicateIds.forEach(id => {
-            remotePlayers.delete(id);
-            deleteDoc(doc(playersRef, id)).catch(() => {});
-          });
+        const roomChannel=supabase.channel('room-'+roomId+'-'+Math.random().toString(36).slice(2));
+        roomChannel.on('postgres_changes',{event:'*',schema:'public',table:'multiplayer_rooms',filter:'id=eq.'+roomId},payload=>{const d=payload.new||{};if(d.updated_by===myId)return;if(d.game_mode==='survival'||d.game_mode==='creative')window.__mcMPBridge.applyRemoteGameMode(d.game_mode);}).subscribe();
 
-          for (const [id, rp] of remotePlayers) {
-            if (!seen.has(id) && now - rp.last > 3500) remotePlayers.delete(id);
-          }
-        }, err => {
-          console.error('プレイヤー位置同期失敗:', err);
-          mpChatButton.title = 'Firebase同期エラー: ' + (err.code || err.message || 'unknown');
-        });
-
-        // Subscribe to chat.
-        chatUnsub = onSnapshot(chatRef, snap => {
-          const list = [];
-          snap.forEach(ds => {
-            const d = ds.data() || {};
-            if (typeof d.text !== 'string') return;
-            list.push({
-              id: ds.id,
-              name: String(d.name || 'Player'),
-              text: d.text.slice(0, 120),
-              time: d.createdAt && d.createdAt.toMillis
-                ? d.createdAt.toMillis()
-                : (Number(d.clientCreatedAt) || 0)
-            });
-          });
-          list.sort((a, b) => (a.time - b.time) || a.id.localeCompare(b.id));
-
-          // Firestoreを正としつつ、まだサーバーのsnapshotに届いていない自分の送信を保持
-          const serverIds = new Set(list.map(m => m.id));
-          const pending = chatMessages.filter(m => !serverIds.has(m.id) && !String(m.text).endsWith('  [送信失敗]'));
-          chatMessages.length = 0;
-          chatMessages.push(...list.slice(-60));
-          pending.forEach(m => chatMessages.push(m));
-          chatMessages.sort((a, b) => (a.time - b.time) || a.id.localeCompare(b.id));
-          if (chatMessages.length > 60) chatMessages.splice(0, chatMessages.length - 60);
-          // チャットが閉じていてもメッセージを更新し、未読数を表示する
-          if (firstChatLoad) {
-            firstChatLoad = false;
-            mpChatMessages._lastSeen = chatMessages.length;
-          } else if (chatOpen) {
-            renderMPChat();
-          } else {
-            var prevLen = mpChatMessages._lastSeen || 0;
-            if (chatMessages.length > prevLen) {
-              unreadCount = Math.min(99, chatMessages.length - prevLen);
-              updateChatButton();
-            }
-            renderMPChat();
-          }
-        }, err => {
-          console.error('チャット受信同期失敗:', err);
-          const row = document.createElement('div');
-          row.style.cssText = 'padding:8px;margin-bottom:8px;background:rgba(160,40,40,.35);border-radius:6px;';
-          row.textContent = 'チャットをFirebaseから同期できません: ' + (err.code || err.message || 'unknown');
-          mpChatMessages.appendChild(row);
-        });
-
-        // Subscribe to block changes. Remote application never calls the local upload callback.
-        blockUnsub = onSnapshot(blocksRef, snap => {
-          if (!bridgeWait()) return;
-          snap.docChanges().forEach(ch => {
-            const d = ch.doc.data() || {};
-            const key = ch.doc.id;
-            const parts = key.split(',');
-            if (parts.length !== 3) return;
-            const x = Number(parts[0]), y = Number(parts[1]), z = Number(parts[2]);
-            if (ch.type === 'removed') {
-              window.__mcMPBridge.applyRemoteBlock(x,y,z,0,d.furnaceDir,d.meta);
-            } else {
-              window.__mcMPBridge.applyRemoteBlock(x,y,z,Number(d.id)||0,d.furnaceDir,d.meta);
-            }
-          });
-        }, err => {
-          console.error('ブロック同期失敗:', err);
-          mpChatButton.title = 'Firebaseブロック同期エラー: ' + (err.code || err.message || 'unknown');
-        });
-
-        // 他プレイヤーがゲームモードを変更したら、この画面にも反映する
-        onSnapshot(roomRef, ds => {
-          if (!ds.exists()) return;
-          const d = ds.data() || {};
-          if (d.updatedBy === myId) return;
-          if (d.gameMode === 'survival' || d.gameMode === 'creative') {
-            window.__mcMPBridge.applyRemoteGameMode(d.gameMode);
-          }
-        }, err => {
-          console.error('ルーム同期失敗:', err);
-        });
-
-        // If this room has no block records yet, seed it from the local world's saved edits.
-        try {
-          const existing = await getDocs(blocksRef);
-          if (existing.empty && bridgeWait()) {
-            const local = window.__mcMPBridge.getBlockChanges();
-            const furnace = window.__mcMPBridge.getFurnaceOrientations();
-            const blockMeta = window.__mcMPBridge.getBlockMetadata ? window.__mcMPBridge.getBlockMetadata() : {};
-            const keys = Object.keys(local);
-            for (let i=0; i<keys.length; i++) {
-              const key = keys[i];
-              await setDoc(doc(blocksRef, key), {
-                id: Number(local[key]) || 0,
-                furnaceDir: furnace[key] !== undefined ? furnace[key] : null,
-                meta: blockMeta[key] !== undefined ? Number(blockMeta[key]) : null,
-                updatedAt: serverTimestamp()
-              });
-            }
-          }
-        } catch (e) { console.warn('初期ブロック同期:', e); }
-
-        ready = true;
-        mpChatButton.style.display = 'block';
-        mpChatButton.title = 'チャット（Firebase同期中）';
-      } catch (e) {
-        console.error('Multiplayer initialization failed:', e);
-      }
+        try { const {count}=await supabase.from('multiplayer_blocks').select('key',{count:'exact',head:true}).eq('room_id',roomId); if((count||0)===0&&bridgeWait()){const local=window.__mcMPBridge.getBlockChanges();const furnace=window.__mcMPBridge.getFurnaceOrientations();const blockMeta=window.__mcMPBridge.getBlockMetadata?window.__mcMPBridge.getBlockMetadata():{};const keys=Object.keys(local);for(let i=0;i<keys.length;i++){const key=keys[i];await supabase.from('multiplayer_blocks').upsert({room_id:roomId,key:key,block_id:Number(local[key])||0,furnace_dir:furnace[key]!==undefined?furnace[key]:null,meta:blockMeta[key]!==undefined?Number(blockMeta[key]):null,updated_at_ms:Date.now()},{onConflict:'room_id,key'});}}}catch(e){console.warn('初期ブロック同期:',e);}
+        ready=true; mpChatButton.style.display='block'; mpChatButton.title='チャット（Supabase同期中）';
+      } catch(e){console.error('Multiplayer initialization failed:',e);}
     }
 
-    function uploadLocalBlock(x,y,z,id,furnaceDir,meta) {
-      if (!ready) {
-        console.warn('ブロック同期: Firebase接続準備前のため保留');
-        return;
-      }
-      const key = x + ',' + y + ',' + z;
-      setDoc(doc(blocksRef, key), {
-        id: Number(id) || 0,
-        furnaceDir: furnaceDir !== undefined ? furnaceDir : null,
-        meta: (meta !== undefined && meta !== null) ? Number(meta) : null,
-        updatedAt: serverTimestamp(),
-        clientUpdatedAt: Date.now(),
-        clientId: myId
-      }, { merge: true }).catch(e => {
-        console.error('ブロック同期失敗:', e);
-        mpChatButton.title = 'Firebaseブロック書き込み失敗: ' + (e.code || e.message || 'unknown');
-      });
-    }
+    async function uploadLocalBlock(x,y,z,id,furnaceDir,meta){if(!ready){console.warn('ブロック同期: Supabase接続準備前のため保留');return;}const key=x+','+y+','+z;const {error}=await supabase.from('multiplayer_blocks').upsert({room_id:roomId,key,block_id:Number(id)||0,furnace_dir:furnaceDir!==undefined?furnaceDir:null,meta:(meta!==undefined&&meta!==null)?Number(meta):null,updated_at_ms:Date.now(),client_updated_at_ms:Date.now(),client_id:myId},{onConflict:'room_id,key'});if(error){console.error('ブロック同期失敗:',error);mpChatButton.title='Supabaseブロック書き込み失敗: '+(error.message||'unknown');}}
+    function uploadGameMode(mode){if(!ready)return;supabase.from('multiplayer_rooms').upsert({id:roomId,game_mode:mode,updated_by:myId,updated_at_ms:Date.now()},{onConflict:'id'}).catch(()=>{});}
 
-    // ゲームモード（サバイバル／クリエイティブ）を部屋の全員に共有する
-    function uploadGameMode(mode) {
-      if (!ready) return;
-      setDoc(roomRef, { gameMode: mode, updatedBy: myId, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
-    }
+    const mpMiniMap=document.createElement('canvas');mpMiniMap.id='multiplayer-minimap';mpMiniMap.style.cssText='position:fixed;left:14px;top:14px;width:170px;height:170px;z-index:10002;pointer-events:none;border:3px solid rgba(0,0,0,.85);border-radius:4px;background:rgba(20,20,20,.82);box-shadow:0 3px 12px rgba(0,0,0,.5);display:none;image-rendering:pixelated;';document.body.appendChild(mpMiniMap);const mpMiniCtx=mpMiniMap.getContext('2d');function resizeMPMiniMap(){const dpr=Math.max(1,window.devicePixelRatio||1);mpMiniMap.width=Math.floor(170*dpr);mpMiniMap.height=Math.floor(170*dpr);mpMiniCtx.setTransform(dpr,0,0,dpr,0,0);mpMiniMap.style.display='block';}resizeMPMiniMap();
+    function miniMapColor(id){const colors={1:'#5b9b3a',2:'#8b5a35',3:'#888',4:'#444',5:'#d9c27a',6:'#777',7:'#3f7f35',8:'#8fd3ff',9:'#777',10:'#777',11:'#a9a9a9',12:'#b66',76:'#a9783e',77:'#6b4b2a',78:'#777'};if(colors[id])return colors[id];if(id>=12&&id<=27)return '#bfbfbf';if(id>=28&&id<=39)return '#8d623b';if(id>=40&&id<=55)return '#c7b7a0';if(id>=56&&id<=75)return '#777';if(id>=79&&id<=100)return '#9a9a9a';return '#666';}
+    function drawMPMiniMap(){if(!ready||!bridgeWait()||!window.__mcMPBridge.getMiniMapSnapshot)return;const data=window.__mcMPBridge.getMiniMapSnapshot(10);if(!data||!data.cells)return;const size=170,count=data.radius*2+1,cell=size/count,c=mpMiniCtx;c.clearRect(0,0,size,size);c.fillStyle='#222';c.fillRect(0,0,size,size);for(let z=0;z<count;z++)for(let x=0;x<count;x++){const cellData=data.cells[z][x];c.fillStyle=miniMapColor(cellData.id);c.fillRect(x*cell,z*cell,Math.ceil(cell)+.5,Math.ceil(cell)+.5);}const center=size/2;c.fillStyle='rgba(255,255,255,.18)';c.fillRect(center-cell/2,center-cell/2,cell,cell);c.save();c.translate(center,center);const state=window.__mcMPBridge.getPlayerState();const ry=state?Number(state.ry)||0:0;c.rotate(-ry);c.beginPath();c.moveTo(0,-9);c.lineTo(6,8);c.lineTo(0,4);c.lineTo(-6,8);c.closePath();c.fillStyle='#fff';c.fill();c.restore();c.strokeStyle='rgba(255,255,255,.55)';c.lineWidth=1;c.strokeRect(1,1,size-2,size-2);c.fillStyle='rgba(0,0,0,.55)';c.fillRect(5,5,58,18);c.fillStyle='#fff';c.font='12px Arial';c.fillText('MINIMAP',10,18);}
 
-    // マルチプレイ専用ミニマップ。ワールド座標を毎フレーム読み直すため、
-    // ブロック変更もプレイヤー位置も常に現在の状態を表示する。
-    const mpMiniMap = document.createElement('canvas');
-    mpMiniMap.id = 'multiplayer-minimap';
-    mpMiniMap.style.cssText =
-      'position:fixed;left:14px;top:14px;width:170px;height:170px;z-index:10002;' +
-      'pointer-events:none;border:3px solid rgba(0,0,0,.85);border-radius:4px;' +
-      'background:rgba(20,20,20,.82);box-shadow:0 3px 12px rgba(0,0,0,.5);display:none;image-rendering:pixelated;';
-    document.body.appendChild(mpMiniMap);
-    const mpMiniCtx = mpMiniMap.getContext('2d');
-    function resizeMPMiniMap() {
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      mpMiniMap.width = Math.floor(170 * dpr);
-      mpMiniMap.height = Math.floor(170 * dpr);
-      mpMiniCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      mpMiniMap.style.display = 'block';
-    }
-    resizeMPMiniMap();
+    const mpCanvas=document.createElement('canvas');mpCanvas.id='multiplayer-player-overlay';mpCanvas.style.position='fixed';mpCanvas.style.left='0';mpCanvas.style.top='0';mpCanvas.style.width='100vw';mpCanvas.style.height='100vh';mpCanvas.style.pointerEvents='none';mpCanvas.style.zIndex='20';document.body.appendChild(mpCanvas);const mpCtx=mpCanvas.getContext('2d');function resizeMPOverlay(){const dpr=Math.max(1,window.devicePixelRatio||1);mpCanvas.width=Math.floor(innerWidth*dpr);mpCanvas.height=Math.floor(innerHeight*dpr);mpCtx.setTransform(dpr,0,0,dpr,0,0);}resizeMPOverlay();window.addEventListener('resize',resizeMPOverlay,{passive:true});
+    window.__mcMPDrawRemotePlayers=function(){if(!ready||!bridgeWait())return;const bridge=window.__mcMPBridge,now=Date.now(),ctx=mpCtx,width=innerWidth,height=innerHeight;ctx.clearRect(0,0,width,height);const visiblePlayers=[];for(const [id,rp] of remotePlayers){if(now-rp.last>3500){remotePlayers.delete(id);continue;}var prevX=rp.x,prevZ=rp.z;rp.x+=(rp.tx-rp.x)*.28;rp.y+=(rp.ty-rp.y)*.28;rp.z+=(rp.tz-rp.z)*.28;var moved=Math.abs(rp.x-prevX)+Math.abs(rp.z-prevZ);rp.moving=moved>.004;if(rp.moving)rp.walkPhase=(rp.walkPhase||0)+.22;const feet=bridge.projectWorldPoint(rp.x,rp.y-1.62,rp.z),head=bridge.projectWorldPoint(rp.x,rp.y+.18,rp.z),left=bridge.projectWorldPoint(rp.x-.30,rp.y-.78,rp.z),right=bridge.projectWorldPoint(rp.x+.30,rp.y-.78,rp.z);if(!feet||!head||!left||!right)continue;if(!isFinite(feet.depth)||!isFinite(head.depth)||feet.depth<=0||head.depth<=0)continue;const topY=Math.min(head.y,feet.y),bottomY=Math.max(head.y,feet.y),h=bottomY-topY,w=Math.max(8,Math.abs(right.x-left.x)),cx=(left.x+right.x)/2;if(h<8||h>height*2.5)continue;if(bottomY<-100||topY>height+100||cx<-150||cx>width+150)continue;visiblePlayers.push({rp,topY,bottomY,h,w,cx,depth:feet.depth);}visiblePlayers.sort((a,b)=>b.depth-a.depth);ctx.save();ctx.textAlign='center';ctx.imageSmoothingEnabled=false;for(const item of visiblePlayers){const rp=item.rp,topY=item.topY,bottomY=item.bottomY,h=item.h,w=item.w,cx=item.cx;ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(cx-w*.55,bottomY-Math.max(2,h*.025),w*1.10,Math.max(2,h*.04));if(typeof bridge.drawRemotePlayer3D==='function')bridge.drawRemotePlayer3D(rp.x,rp.y,rp.z,rp.ry,rp.walkPhase,rp.moving,rp.skin);const fontSize=Math.max(10,Math.min(18,h*.16));ctx.font='bold '+fontSize+'px Minecraftia, Sans-Serif';const name=String(rp.name||'Player').slice(0,24),nameY=Math.max(12,topY-7),tw=ctx.measureText(name).width;ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(cx-tw/2-4,nameY-fontSize,tw+8,fontSize+5);ctx.fillStyle='#fff';ctx.fillText(name,cx,nameY);}ctx.restore();};
 
-    function miniMapColor(id) {
-      const colors = {
-        1:'#5b9b3a', 2:'#8b5a35', 3:'#888', 4:'#444', 5:'#d9c27a', 6:'#777',
-        7:'#3f7f35', 8:'#8fd3ff', 9:'#777', 10:'#777', 11:'#a9a9a9', 12:'#b66',
-        76:'#a9783e', 77:'#6b4b2a', 78:'#777'
-      };
-      if (colors[id]) return colors[id];
-      if (id >= 12 && id <= 27) return '#bfbfbf';
-      if (id >= 28 && id <= 39) return '#8d623b';
-      if (id >= 40 && id <= 55) return '#c7b7a0';
-      if (id >= 56 && id <= 75) return '#777';
-      if (id >= 79 && id <= 100) return '#9a9a9a';
-      return '#666';
-    }
-    function drawMPMiniMap() {
-      if (!ready || !bridgeWait() || !window.__mcMPBridge.getMiniMapSnapshot) return;
-      const data = window.__mcMPBridge.getMiniMapSnapshot(10);
-      if (!data || !data.cells) return;
-      const size = 170, count = data.radius * 2 + 1;
-      const cell = size / count;
-      const c = mpMiniCtx;
-      c.clearRect(0, 0, size, size);
-      c.fillStyle = '#222'; c.fillRect(0, 0, size, size);
-      for (let z = 0; z < count; z++) {
-        for (let x = 0; x < count; x++) {
-          const cellData = data.cells[z][x];
-          c.fillStyle = miniMapColor(cellData.id);
-          c.fillRect(x * cell, z * cell, Math.ceil(cell) + 0.5, Math.ceil(cell) + 0.5);
-        }
-      }
-      // 方角ではなくプレイヤー中心固定。白い矢印が現在の向き。
-      const center = size / 2;
-      c.fillStyle = 'rgba(255,255,255,.18)';
-      c.fillRect(center - cell/2, center - cell/2, cell, cell);
-      c.save();
-      c.translate(center, center);
-      const state = window.__mcMPBridge.getPlayerState();
-      const ry = state ? Number(state.ry) || 0 : 0;
-      c.rotate(-ry);
-      c.beginPath();
-      c.moveTo(0, -9); c.lineTo(6, 8); c.lineTo(0, 4); c.lineTo(-6, 8); c.closePath();
-      c.fillStyle = '#fff'; c.fill();
-      c.restore();
-      c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.strokeRect(1,1,size-2,size-2);
-      c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(5,5,58,18);
-      c.fillStyle = '#fff'; c.font = '12px Arial'; c.fillText('MINIMAP', 10, 18);
-    }
-
-    // Remove the document for air to keep the room compact.
-    const mpCanvas = document.createElement('canvas');
-    mpCanvas.id = 'multiplayer-player-overlay';
-    mpCanvas.style.position = 'fixed';
-    mpCanvas.style.left = '0';
-    mpCanvas.style.top = '0';
-    mpCanvas.style.width = '100vw';
-    mpCanvas.style.height = '100vh';
-    mpCanvas.style.pointerEvents = 'none';
-    mpCanvas.style.zIndex = '20';
-    document.body.appendChild(mpCanvas);
-    const mpCtx = mpCanvas.getContext('2d');
-    function resizeMPOverlay() {
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      mpCanvas.width = Math.floor(innerWidth * dpr);
-      mpCanvas.height = Math.floor(innerHeight * dpr);
-      mpCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    resizeMPOverlay();
-    window.addEventListener('resize', resizeMPOverlay, { passive: true });
-
-    window.__mcMPDrawRemotePlayers = function() {
-      if (!ready || !bridgeWait()) return;
-      const bridge = window.__mcMPBridge;
-      const now = Date.now();
-      const ctx = mpCtx;
-      const width = innerWidth, height = innerHeight;
-      ctx.clearRect(0, 0, width, height);
-
-      // Remote players are drawn as Minecraft-style human avatars on a HUD overlay.
-      // This does not replace or modify the local player's rendering.
-      const visiblePlayers = [];
-      for (const [id, rp] of remotePlayers) {
-        if (now - rp.last > 3500) {
-          remotePlayers.delete(id);
-          continue;
-        }
-
-        // Smooth network movement so remote players do not jump between packets.
-        var prevX = rp.x, prevZ = rp.z;
-        rp.x += (rp.tx - rp.x) * 0.28;
-        rp.y += (rp.ty - rp.y) * 0.28;
-        rp.z += (rp.tz - rp.z) * 0.28;
-        // 歩行アニメーション用：移動量から足の振りを計算
-        var moved = Math.abs(rp.x - prevX) + Math.abs(rp.z - prevZ);
-        rp.moving = moved > 0.004;
-        if (rp.moving) rp.walkPhase = (rp.walkPhase || 0) + 0.22;
-
-        // 角度による誤判定でプレイヤー全体を消さない。
-        // 3D本体はワールド描画後に同じDepth Bufferで描くため、
-        // 実際にブロックの裏側にある部分だけがブロックに隠れる。
-        const feet = bridge.projectWorldPoint(rp.x, rp.y - 1.62, rp.z);
-        const head = bridge.projectWorldPoint(rp.x, rp.y + 0.18, rp.z);
-        const left = bridge.projectWorldPoint(rp.x - 0.30, rp.y - 0.78, rp.z);
-        const right = bridge.projectWorldPoint(rp.x + 0.30, rp.y - 0.78, rp.z);
-        if (!feet || !head || !left || !right) continue;
-        if (!isFinite(feet.depth) || !isFinite(head.depth) || feet.depth <= 0 || head.depth <= 0) continue;
-
-        const topY = Math.min(head.y, feet.y);
-        const bottomY = Math.max(head.y, feet.y);
-        const h = bottomY - topY;
-        const w = Math.max(8, Math.abs(right.x - left.x));
-        const cx = (left.x + right.x) / 2;
-        if (h < 8 || h > height * 2.5) continue;
-        if (bottomY < -100 || topY > height + 100 || cx < -150 || cx > width + 150) continue;
-
-        visiblePlayers.push({ rp, topY, bottomY, h, w, cx, depth: feet.depth });
-      }
-
-      // Farther players first, nearer players last.
-      visiblePlayers.sort((a, b) => b.depth - a.depth);
-
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.imageSmoothingEnabled = false;
-
-      for (const item of visiblePlayers) {
-        const rp = item.rp;
-        const topY = item.topY;
-        const bottomY = item.bottomY;
-        const h = item.h;
-        const w = item.w;
-        const cx = item.cx;
-
-        const headH = h * 0.285;
-        const bodyH = h * 0.355;
-        const legH = h * 0.36;
-        // 3D Steve本体はWebGL側で描画するため、2Dの平面パーツは作らない。
-
-        // Shadow at the player's feet.
-        ctx.fillStyle = 'rgba(0,0,0,0.28)';
-        ctx.fillRect(cx - w * 0.55, bottomY - Math.max(2, h * 0.025), w * 1.10, Math.max(2, h * 0.04));
-
-        // 他プレイヤーをワールド内に立体的なブロックキャラ（頭・胴・腕・足）として描画する
-        if (typeof bridge.drawRemotePlayer3D === 'function') {
-          bridge.drawRemotePlayer3D(rp.x, rp.y, rp.z, rp.ry, rp.walkPhase, rp.moving, rp.skin);
-        }
-
-        // Name tag.
-        const fontSize = Math.max(10, Math.min(18, h * 0.16));
-        ctx.font = 'bold ' + fontSize + 'px Minecraftia, Sans-Serif';
-        const name = String(rp.name || 'Player').slice(0, 24);
-        const nameY = Math.max(12, topY - 7);
-        const tw = ctx.measureText(name).width;
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(cx - tw / 2 - 4, nameY - fontSize, tw + 8, fontSize + 5);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(name, cx, nameY);
-      }
-      ctx.restore();
-    };
-
-    window.__mcMPBridgeReady = true;
-    // Wait for the game closure to expose its bridge, then attach the upload callback.
-    const bridgeTimer = setInterval(() => {
-      if (!bridgeWait()) return;
-      clearInterval(bridgeTimer);
-      window.__mcMPBridge.localBlockChanged = uploadLocalBlock;
-      window.__mcMPBridge.localGameModeChanged = uploadGameMode;
-    }, 50);
-
-    setInterval(() => {
-      if (!ready || !bridgeWait()) return;
-      const now = Date.now();
-      if (now - lastPlayerWrite < 80) return;
-      lastPlayerWrite = now;
-      const s = window.__mcMPBridge.getPlayerState();
-      if (!s) return;
-      setDoc(doc(playersRef, myId), {
-        name: playerName,
-        x: Number(s.x)||0,
-        y: Number(s.y)||0,
-        z: Number(s.z)||0,
-        rx: Number(s.rx)||0,
-        ry: Number(s.ry)||0,
-        shirt: myShirtHex,
-        pants: myPantsHex,
-        clientId: myId,
-        heartbeat: now,
-        clientUpdatedAt: now,
-        updatedAt: serverTimestamp()
-      }, { merge: true }).catch(e => {
-        console.error('プレイヤー位置書き込み失敗:', e);
-        mpChatButton.title = 'Firebase位置同期失敗: ' + (e.code || e.message || 'unknown');
-      });
-    }, 50);
-
+    window.__mcMPBridgeReady=true;const bridgeTimer=setInterval(()=>{if(!bridgeWait())return;clearInterval(bridgeTimer);window.__mcMPBridge.localBlockChanged=uploadLocalBlock;window.__mcMPBridge.localGameModeChanged=uploadGameMode;},50);
+    setInterval(async()=>{if(!ready||!bridgeWait())return;const now=Date.now();if(now-lastPlayerWrite<80)return;lastPlayerWrite=now;const s=window.__mcMPBridge.getPlayerState();if(!s)return;const {error}=await supabase.from('multiplayer_players').upsert({room_id:roomId,id:myId,name:playerName,x:Number(s.x)||0,y:Number(s.y)||0,z:Number(s.z)||0,rx:Number(s.rx)||0,ry:Number(s.ry)||0,shirt:myShirtHex,pants:myPantsHex,client_id:myId,heartbeat:now,client_updated_at_ms:now,updated_at_ms:now},{onConflict:'room_id,id'});if(error){console.error('プレイヤー位置書き込み失敗:',error);mpChatButton.title='Supabase位置同期失敗: '+(error.message||'unknown');}},50);
     startMultiplayer();
   }
 </script>
