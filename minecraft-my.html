@@ -1824,8 +1824,8 @@ Controls:
           returnCraftingItems();
         }
         if (typeof returnItemToInv === "function" && inventory && inventory.holding) {
-          returnItemToInv(inventory.holding);
-          inventory.holding = 0;
+          var leftHold = returnItemToInv(inventory.holding, inventory.holdingCount || 1);
+          if (leftHold > 0) { inventory.holdingCount = leftHold; } else { inventory.holding = 0; inventory.holdingCount = 0; }
         }
         screen = "play";
         invView = "main";
@@ -3484,6 +3484,11 @@ Controls:
             top = 0,
             rand = 0,
             place = false;
+          // 深さバンド適合度: depth01（0=石の上面 〜 1=岩盤付近）がバンド中心から離れるほど0に減衰する
+          var bandFit = function(depth01, center, width) {
+            var d = Math.abs(depth01 - center) / width;
+            return Math.max(0, 1 - d * d);
+          };
           for (var i = 0; i < 16; i++) {
             for (var k = 0; k < 16; k++) {
               wx = this.x + i;
@@ -3553,37 +3558,46 @@ Controls:
                 world.spawnBlock(wx, top + 1, wz + 1, blockIds.leaves);
                 world.spawnBlock(wx - 1, top + 1, wz, blockIds.leaves);
               }
-              // Blocks of each per chunk in Minecraft
-              // Coal: 185.5
-              // Iron: 111.5
-              // Gold: 10.4
-              // Redstone: 29.1
-              // Diamond: 3.7
-              // Lapis: 4.1
+              // ===== 鉱石生成：深さ（y）によって出現する鉱石と出現率が連続的に変わる =====
               ground -= 4;
-              if (random() < 3.7 / 256) {
-                var y = random() * 16 | 0 + 1;
-                this.setBlock(i, y < ground ? y : ground, k, blockIds.diamondOre, true);
+              var stoneTop = Math.max(3, ground);
+              var depth01 = 0;
+              var oy = 0;
+              // 石炭: 表層中心。地表近くの石に多く、深いほど減る
+              oy = 1 + Math.floor(random() * Math.min(stoneTop - 1, 20));
+              depth01 = (stoneTop - oy) / (stoneTop - 1);
+              if (random() < 0.28 + 0.30 * bandFit(depth01, 0.1, 0.5)) {
+                this.setBlock(i, oy, k, blockIds.coalOre, true);
               }
-              if (random() < 111.5 / 256) {
-                var y = random() * ground | 0 + 1;
-                this.setBlock(i, y < ground ? y : ground, k, blockIds.ironOre, true);
+              // 鉄: 中間層中心。浅すぎ・深すぎると減る
+              oy = 1 + Math.floor(random() * Math.max(1, stoneTop - 2));
+              depth01 = (stoneTop - oy) / (stoneTop - 1);
+              if (random() < 0.08 + 0.30 * bandFit(depth01, 0.5, 0.4)) {
+                this.setBlock(i, oy, k, blockIds.ironOre, true);
               }
-              if (random() < 185.5 / 256) {
-                var y = random() * ground | 0 + 1;
-                this.setBlock(i, y < ground ? y : ground, k, blockIds.coalOre, true);
+              // レッドストーン: 深部中心
+              oy = 1 + Math.floor(random() * Math.max(1, Math.floor(stoneTop * 0.5)));
+              depth01 = (stoneTop - oy) / (stoneTop - 1);
+              if (random() < 0.015 + 0.09 * bandFit(depth01, 0.85, 0.35)) {
+                this.setBlock(i, oy, k, blockIds.redstoneOre, true);
               }
-              if (random() < 10.4 / 256) {
-                var y = random() * 32 | 0 + 1;
-                this.setBlock(i, y < ground ? y : ground, k, blockIds.goldOre, true);
+              // ラピス: 深部寄り
+              oy = 1 + Math.floor(random() * Math.max(1, Math.floor(stoneTop * 0.45)));
+              depth01 = (stoneTop - oy) / (stoneTop - 1);
+              if (random() < 0.004 + 0.018 * bandFit(depth01, 0.8, 0.3)) {
+                this.setBlock(i, oy, k, blockIds.lapisOre, true);
               }
-              if (random() < 29.1 / 256) {
-                var y = random() * 32 | 0 + 1;
-                this.setBlock(i, y < ground ? y : ground, k, blockIds.redstoneOre, true);
+              // 金: 深部のみ
+              oy = 1 + Math.floor(random() * Math.max(1, Math.floor(stoneTop * 0.35)));
+              depth01 = (stoneTop - oy) / (stoneTop - 1);
+              if (random() < 0.002 + 0.05 * bandFit(depth01, 0.9, 0.25)) {
+                this.setBlock(i, oy, k, blockIds.goldOre, true);
               }
-              if (random() < 4.1 / 256) {
-                var y = random() * 32 | 0 + 1;
-                this.setBlock(i, y < ground ? y : ground, k, blockIds.lapisOre, true);
+              // ダイヤ: 最深部のみ
+              oy = 1 + Math.floor(random() * Math.max(1, Math.floor(stoneTop * 0.25)));
+              depth01 = (stoneTop - oy) / (stoneTop - 1);
+              if (random() < 0.0008 + 0.022 * bandFit(depth01, 0.95, 0.2)) {
+                this.setBlock(i, oy, k, blockIds.diamondOre, true);
               }
             }
           }
@@ -4493,11 +4507,16 @@ Controls:
 
       // クラフト & 精錬データ
       var craftTableGrid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      var craftTableCounts = [0, 0, 0, 0, 0, 0, 0, 0, 0];
       var playerCraftGrid = [0, 0, 0, 0];
+      var playerCraftCounts = [0, 0, 0, 0];
       var furnaceData = {
         input: 0,
+        inputCount: 0,
         fuel: 0,
+        fuelCount: 0,
         result: 0,
+        resultCount: 0,
         cookTime: 0,
         maxCookTime: 80,
         fuelTime: 0,
@@ -4505,33 +4524,56 @@ Controls:
         lastTick: Date.now()
       };
 
-      function returnItemToInv(item) {
-        if (!item) return;
-        for (var i = 0; i < inventory.hotbar.length; i++) {
-          if (!inventory.hotbar[i]) {
-            inventory.hotbar[i] = item;
-            return;
+      function returnItemToInv(item, count) {
+        if (!item) return 0;
+        count = count || 1;
+        // まず既存のスタックに統合する（最大64）
+        for (var i = 0; i < inventory.hotbar.length && count > 0; i++) {
+          if (inventory.hotbar[i] === item && (inventory.hotbarCounts[i] || 0) < MAX_STACK) {
+            var n = Math.min(count, MAX_STACK - (inventory.hotbarCounts[i] || 0));
+            inventory.hotbarCounts[i] = (inventory.hotbarCounts[i] || 0) + n;
+            count -= n;
           }
         }
-        for (var j = 0; j < inventory.main.length; j++) {
-          if (!inventory.main[j]) {
-            inventory.main[j] = item;
-            return;
+        for (var j = 0; j < inventory.main.length && count > 0; j++) {
+          if (inventory.main[j] === item && (inventory.mainCounts[j] || 0) < MAX_STACK) {
+            var n2 = Math.min(count, MAX_STACK - (inventory.mainCounts[j] || 0));
+            inventory.mainCounts[j] = (inventory.mainCounts[j] || 0) + n2;
+            count -= n2;
           }
         }
+        // 空きスロットへ（64個ずつスタックして格納）
+        for (var k2 = 0; k2 < inventory.hotbar.length && count > 0; k2++) {
+          if (!inventory.hotbar[k2]) {
+            var n3 = Math.min(count, MAX_STACK);
+            inventory.hotbar[k2] = item;
+            inventory.hotbarCounts[k2] = n3;
+            count -= n3;
+          }
+        }
+        for (var m2 = 0; m2 < inventory.main.length && count > 0; m2++) {
+          if (!inventory.main[m2]) {
+            var n4 = Math.min(count, MAX_STACK);
+            inventory.main[m2] = item;
+            inventory.mainCounts[m2] = n4;
+            count -= n4;
+          }
+        }
+        updateHUD = true;
+        return count; // 収まりきらなかった残数
       }
 
       function returnCraftingItems() {
         for (var i = 0; i < craftTableGrid.length; i++) {
           if (craftTableGrid[i]) {
-            returnItemToInv(craftTableGrid[i]);
-            craftTableGrid[i] = 0;
+            var left1 = returnItemToInv(craftTableGrid[i], craftTableCounts[i] || 1);
+            if (left1 > 0) { craftTableCounts[i] = left1; } else { craftTableGrid[i] = 0; craftTableCounts[i] = 0; }
           }
         }
         for (var j = 0; j < playerCraftGrid.length; j++) {
           if (playerCraftGrid[j]) {
-            returnItemToInv(playerCraftGrid[j]);
-            playerCraftGrid[j] = 0;
+            var left2 = returnItemToInv(playerCraftGrid[j], playerCraftCounts[j] || 1);
+            if (left2 > 0) { playerCraftCounts[j] = left2; } else { playerCraftGrid[j] = 0; playerCraftCounts[j] = 0; }
           }
         }
       }
@@ -4616,10 +4658,51 @@ Controls:
         return 0;
       }
 
-      function consumeCraftGrid(grid) {
+      function consumeCraftGrid(grid, counts) {
         for (var i = 0; i < grid.length; i++) {
-          if (grid[i]) grid[i] = 0;
+          if (grid[i]) {
+            // クラフト1回につき各スロットから1個だけ消費する
+            var left2 = (counts && counts[i]) ? counts[i] - 1 : 0;
+            if (left2 > 0) { counts[i] = left2; } else { grid[i] = 0; if (counts) counts[i] = 0; }
+          }
         }
+      }
+
+      // インベントリ回りの共通操作：スロットと手持ちアイテムを「数値込み」で入れ替える。
+      // 同じアイテム同士なら最大64までスタックを統合する。
+      function mergePick(slotGet, slotSet) {
+        var s = slotGet();
+        var sId = s.id || 0;
+        var sCnt = sId ? Math.min(MAX_STACK, s.count || 1) : 0;
+        var hId = inventory.holding || 0;
+        var hCnt = hId ? Math.min(MAX_STACK, inventory.holdingCount || 1) : 0;
+        if (hId && sId === hId) {
+          // スロット側へ統合できる場合は統合する
+          if (sCnt < MAX_STACK) {
+            var mv = Math.min(hCnt, MAX_STACK - sCnt);
+            sCnt += mv; hCnt -= mv;
+            slotSet(sId, sCnt);
+            inventory.holding = hCnt > 0 ? hId : 0;
+            inventory.holdingCount = hCnt > 0 ? hCnt : 0;
+            updateHUD = true;
+            return;
+          }
+          // スロットが満杯なら手持ち側へ統合する
+          if (hCnt < MAX_STACK) {
+            var mv2 = Math.min(sCnt, MAX_STACK - hCnt);
+            hCnt += mv2; sCnt -= mv2;
+            slotSet(sCnt > 0 ? sId : 0, sCnt > 0 ? sCnt : 0);
+            inventory.holding = hId;
+            inventory.holdingCount = hCnt;
+            updateHUD = true;
+            return;
+          }
+        }
+        // 異なるアイテム（または両方満杯）なら入れ替える
+        slotSet(hId, hCnt);
+        inventory.holding = sId;
+        inventory.holdingCount = sCnt;
+        updateHUD = true;
       }
 
       function getSmeltResult(inputId) {
@@ -4652,7 +4735,8 @@ Controls:
           if (furnaceData.fuelTime <= 0) {
             var pwr = getFuelPower(furnaceData.fuel);
             if (pwr > 0) {
-              furnaceData.fuel = 0;
+              var leftFuel = (furnaceData.fuelCount || 1) - 1;
+              if (leftFuel > 0) { furnaceData.fuelCount = leftFuel; } else { furnaceData.fuel = 0; furnaceData.fuelCount = 0; }
               furnaceData.fuelTime = pwr;
               furnaceData.maxFuelTime = pwr;
             }
@@ -4662,8 +4746,14 @@ Controls:
             furnaceData.cookTime += dt;
             if (furnaceData.cookTime >= furnaceData.maxCookTime) {
               furnaceData.cookTime = 0;
-              furnaceData.input = 0;
-              furnaceData.result = resultItem;
+              var leftInput = (furnaceData.inputCount || 1) - 1;
+              if (leftInput > 0) { furnaceData.inputCount = leftInput; } else { furnaceData.input = 0; furnaceData.inputCount = 0; }
+              if (furnaceData.result === resultItem) {
+                furnaceData.resultCount = (furnaceData.resultCount || 1) + 1;
+              } else {
+                furnaceData.result = resultItem;
+                furnaceData.resultCount = 1;
+              }
             }
           } else {
             if (furnaceData.cookTime > 0) furnaceData.cookTime = Math.max(0, furnaceData.cookTime - dt);
@@ -5107,6 +5197,11 @@ Controls:
         var clx = 185 + cc2 * 35 + 17;
         var cly = 29 + cr2 * 35 + 17;
         drawIcon(ox + clx * scale, oy + cly * scale, pId);
+        if (gameMode === 'survival' && (playerCraftCounts[cr2 * 2 + cc2] || 0) > 1) {
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+          ctx.fillText(String(playerCraftCounts[cr2 * 2 + cc2]), ox + (clx + 12) * scale, oy + (cly + 12) * scale);
+          ctx.textAlign = 'left';
+        }
       }
     }
   }
@@ -5150,6 +5245,11 @@ Controls:
         oy + hotLocalY * scale,
         hotId
       );
+      if (gameMode === 'survival' && (inventory.hotbarCounts[hc2] || 0) > 1) {
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+        ctx.fillText(String(inventory.hotbarCounts[hc2]), ox + (hotLocalX + 12) * scale, oy + (hotLocalY + 12) * scale);
+        ctx.textAlign = 'left';
+      }
     }
   }
 
@@ -5299,6 +5399,11 @@ function drawInvCraftingTable() {
         var lx = invX + c2 * 35 + 17;
         var ly = invY + r2 * 35 + 17;
         drawIcon(ox + lx * scale, oy + ly * scale, id);
+        if (gameMode === 'survival' && (inventory.mainCounts[r2 * 9 + c2] || 0) > 1) {
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+          ctx.fillText(String(inventory.mainCounts[r2 * 9 + c2]), ox + (lx + 12) * scale, oy + (ly + 12) * scale);
+          ctx.textAlign = 'left';
+        }
       }
     }
   }
@@ -5310,6 +5415,11 @@ function drawInvCraftingTable() {
       var lx = hotX + hc2 * 35 + 17;
       var ly = hotY + 17;
       drawIcon(ox + lx * scale, oy + ly * scale, hotId);
+      if (gameMode === 'survival' && (inventory.hotbarCounts[hc2] || 0) > 1) {
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+        ctx.fillText(String(inventory.hotbarCounts[hc2]), ox + (lx + 12) * scale, oy + (ly + 12) * scale);
+        ctx.textAlign = 'left';
+      }
     }
   }
 
@@ -5491,12 +5601,27 @@ function drawInvFurnace() {
 
   if (furnaceData.input) {
     drawIcon(ox + (inputX + 17) * scale, oy + (inputY + 17) * scale, furnaceData.input);
+    if (gameMode === 'survival' && (furnaceData.inputCount || 0) > 1) {
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+      ctx.fillText(String(furnaceData.inputCount), ox + (inputX + 29) * scale, oy + (inputY + 29) * scale);
+      ctx.textAlign = 'left';
+    }
   }
   if (furnaceData.fuel) {
     drawIcon(ox + (fuelX + 17) * scale, oy + (fuelY + 17) * scale, furnaceData.fuel);
+    if (gameMode === 'survival' && (furnaceData.fuelCount || 0) > 1) {
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+      ctx.fillText(String(furnaceData.fuelCount), ox + (fuelX + 29) * scale, oy + (fuelY + 29) * scale);
+      ctx.textAlign = 'left';
+    }
   }
   if (furnaceData.result) {
     drawIcon(ox + (resultX + resSize / 2) * scale, oy + (resultY + resSize / 2) * scale, furnaceData.result);
+    if (gameMode === 'survival' && (furnaceData.resultCount || 0) > 1) {
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+      ctx.fillText(String(furnaceData.resultCount), ox + (resultX + resSize - 5) * scale, oy + (resultY + resSize - 9) * scale);
+      ctx.textAlign = 'left';
+    }
   }
 
   // メインインベントリ
@@ -5507,6 +5632,11 @@ function drawInvFurnace() {
         var lx = invX + c2 * 35 + 17;
         var ly = invY + r2 * 35 + 17;
         drawIcon(ox + lx * scale, oy + ly * scale, id);
+        if (gameMode === 'survival' && (inventory.mainCounts[r2 * 9 + c2] || 0) > 1) {
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+          ctx.fillText(String(inventory.mainCounts[r2 * 9 + c2]), ox + (lx + 12) * scale, oy + (ly + 12) * scale);
+          ctx.textAlign = 'left';
+        }
       }
     }
   }
@@ -5518,6 +5648,11 @@ function drawInvFurnace() {
       var lx = hotX + hc2 * 35 + 17;
       var ly = hotY + 17;
       drawIcon(ox + lx * scale, oy + ly * scale, hotId);
+      if (gameMode === 'survival' && (inventory.hotbarCounts[hc2] || 0) > 1) {
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Sans-Serif'; ctx.textAlign = 'right';
+        ctx.fillText(String(inventory.hotbarCounts[hc2]), ox + (lx + 12) * scale, oy + (ly + 12) * scale);
+        ctx.textAlign = 'left';
+      }
     }
   }
 
@@ -5555,9 +5690,10 @@ function clickInvCraftingTable() {
       var y = gridY + r * (slotSize + gap);
       if (mx >= x && mx < x + slotSize && my >= y && my < y + slotSize) {
         var idx = r * 3 + c;
-        var old = craftTableGrid[idx] || 0;
-        craftTableGrid[idx] = inventory.holding || 0;
-        inventory.holding = old;
+        mergePick(
+          function() { return { id: craftTableGrid[idx] || 0, count: craftTableCounts[idx] || 0 }; },
+          function(id, cnt) { craftTableGrid[idx] = id; craftTableCounts[idx] = id ? cnt : 0; }
+        );
         return;
       }
     }
@@ -5570,9 +5706,11 @@ function clickInvCraftingTable() {
     if (craftRes) {
       if (!inventory.holding) {
         inventory.holding = craftRes;
-        consumeCraftGrid(craftTableGrid);
-      } else if (inventory.holding === craftRes) {
-        consumeCraftGrid(craftTableGrid);
+        inventory.holdingCount = 1;
+        consumeCraftGrid(craftTableGrid, craftTableCounts);
+      } else if (inventory.holding === craftRes && (inventory.holdingCount || 0) < MAX_STACK) {
+        inventory.holdingCount = (inventory.holdingCount || 1) + 1;
+        consumeCraftGrid(craftTableGrid, craftTableCounts);
       }
     }
     return;
@@ -5642,9 +5780,10 @@ function clickInvFurnace() {
   // 材料スロット (上)
   var inputX = 105, inputY = 25;
   if (mx >= inputX && mx < inputX + slotSize && my >= inputY && my < inputY + slotSize) {
-    var old = furnaceData.input || 0;
-    furnaceData.input = inventory.holding || 0;
-    inventory.holding = old;
+    mergePick(
+      function() { return { id: furnaceData.input || 0, count: furnaceData.inputCount || 0 }; },
+      function(id, cnt) { furnaceData.input = id; furnaceData.inputCount = id ? cnt : 0; }
+    );
     furnaceData.cookTime = 0;
     return;
   }
@@ -5652,9 +5791,10 @@ function clickInvFurnace() {
   // 燃料スロット (下)
   var fuelX = 105, fuelY = 95;
   if (mx >= fuelX && mx < fuelX + slotSize && my >= fuelY && my < fuelY + slotSize) {
-    var old = furnaceData.fuel || 0;
-    furnaceData.fuel = inventory.holding || 0;
-    inventory.holding = old;
+    mergePick(
+      function() { return { id: furnaceData.fuel || 0, count: furnaceData.fuelCount || 0 }; },
+      function(id, cnt) { furnaceData.fuel = id; furnaceData.fuelCount = id ? cnt : 0; }
+    );
     return;
   }
 
@@ -5664,9 +5804,16 @@ function clickInvFurnace() {
     if (furnaceData.result) {
       if (!inventory.holding) {
         inventory.holding = furnaceData.result;
+        inventory.holdingCount = furnaceData.resultCount || 1;
         furnaceData.result = 0;
+        furnaceData.resultCount = 0;
       } else if (inventory.holding === furnaceData.result) {
-        furnaceData.result = 0;
+        var mvR = Math.min(furnaceData.resultCount || 1, MAX_STACK - (inventory.holdingCount || 1));
+        if (mvR > 0) {
+          inventory.holdingCount = (inventory.holdingCount || 1) + mvR;
+          furnaceData.resultCount = (furnaceData.resultCount || 1) - mvR;
+          if ((furnaceData.resultCount || 0) <= 0) { furnaceData.result = 0; furnaceData.resultCount = 0; }
+        }
       }
     }
     return;
@@ -5799,9 +5946,10 @@ function clickInvFurnace() {
       var cy = 29 + cr * 35;
       if (mx >= cx && mx < cx + 34 && my >= cy && my < cy + 34) {
         var cIdx = cr * 2 + cc;
-        var oldCraft = playerCraftGrid[cIdx] || 0;
-        playerCraftGrid[cIdx] = inventory.holding || 0;
-        inventory.holding = oldCraft;
+        mergePick(
+          function() { return { id: playerCraftGrid[cIdx] || 0, count: playerCraftCounts[cIdx] || 0 }; },
+          function(id, cnt) { playerCraftGrid[cIdx] = id; playerCraftCounts[cIdx] = id ? cnt : 0; }
+        );
         return;
       }
     }
@@ -5815,9 +5963,11 @@ function clickInvFurnace() {
     if (pRes) {
       if (!inventory.holding) {
         inventory.holding = pRes;
-        consumeCraftGrid(playerCraftGrid);
-      } else if (inventory.holding === pRes) {
-        consumeCraftGrid(playerCraftGrid);
+        inventory.holdingCount = 1;
+        consumeCraftGrid(playerCraftGrid, playerCraftCounts);
+      } else if (inventory.holding === pRes && (inventory.holdingCount || 0) < MAX_STACK) {
+        inventory.holdingCount = (inventory.holdingCount || 1) + 1;
+        consumeCraftGrid(playerCraftGrid, playerCraftCounts);
       }
     }
     return;
@@ -5847,10 +5997,10 @@ function clickInvFurnace() {
 
         var idx = r * 9 + c;
 
-        var oldItem = inventory.main[idx] || 0;
-
-        inventory.main[idx] = inventory.holding || 0;
-        inventory.holding = oldItem;
+        mergePick(
+          function() { return { id: inventory.main[idx] || 0, count: inventory.mainCounts[idx] || 0 }; },
+          function(id, cnt) { inventory.main[idx] = id; inventory.mainCounts[idx] = id ? cnt : 0; }
+        );
 
         return;
       }
@@ -5875,10 +6025,10 @@ function clickInvFurnace() {
       my < hotY + slotSize
     ) {
 
-      var oldHot = inventory.hotbar[hc] || 0;
-
-      inventory.hotbar[hc] = inventory.holding || 0;
-      inventory.holding = oldHot;
+      mergePick(
+        function() { return { id: inventory.hotbar[hc] || 0, count: inventory.hotbarCounts[hc] || 0 }; },
+        function(id, cnt) { inventory.hotbar[hc] = id; inventory.hotbarCounts[hc] = id ? cnt : 0; }
+      );
 
       return;
     }
@@ -5928,10 +6078,17 @@ function clickInvFurnace() {
   switch (e.button) {
     case 0:
       Key.leftMouse = true;
+      // 長押し破壊：押すたびに破壊進行をリセットする
+      breakState.key = '';
+      updateHUD = true;
       break;
     case 1:
       Key.middleMouse = true;
-      inventory.hotbar[inventory.hotbarSlot] = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
+      var pickedId = world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2]);
+      var samePick = inventory.hotbar[inventory.hotbarSlot] === pickedId;
+      inventory.hotbar[inventory.hotbarSlot] = pickedId;
+      // 異なるブロックをピックした場合は古い所持数を引き継がない
+      inventory.hotbarCounts[inventory.hotbarSlot] = samePick ? (inventory.hotbarCounts[inventory.hotbarSlot] || 1) : 1;
       break;
     case 2:
       Key.rightMouse = true;
@@ -5974,7 +6131,10 @@ function clickInvFurnace() {
         if (Key.control) {
           place = true;
         } else {
-          changeWorldBlock(0);
+          // 長押しで破壊：押した時点では壊さず、破壊進行の開始だけを行う。
+          // サバイバルでは blockBreakDuration 分の長押し後に壊れる。
+          // （クリエイティブは即時破壊のまま）
+          tryBreakBlock();
         }
       }
       holding = inventory.hotbar[inventory.hotbarSlot];
@@ -6042,7 +6202,7 @@ function clickInvFurnace() {
 
             Key[key] = true;
           }
-          function up(e) { e.preventDefault(); Key[key] = false; }
+          function up(e) { e.preventDefault(); Key[key] = false; if (key === "leftMouse") { breakState.key = ''; updateHUD = true; } }
           btn.addEventListener("touchstart", down, {passive:false});
           btn.addEventListener("touchend", up, {passive:false});
           btn.addEventListener("touchcancel", up, {passive:false});
@@ -7358,6 +7518,7 @@ function clickInvFurnace() {
 
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
 <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","spa":2}' crossorigin="anonymous"></script>
 </body>
 
 </html>
