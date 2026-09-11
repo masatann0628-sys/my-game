@@ -130,15 +130,13 @@
     }
 
     window.prepareMultiplayerRoom = async function(address) {
+      // マルチプレイの部屋IDとワールドシードはサーバー名から決定的に生成する。
+      // multiplayer_rooms の address/seed/created_at_ms 列に依存しないため、
+      // Supabase側の古いテーブル構成でも接続できる。
       var roomId = multiplayerRoomId(address);
-      const { data: existing, error: readError } = await supabase.from('multiplayer_rooms').select('*').eq('id', roomId).maybeSingle();
-      if (readError) throw readError;
-      if (existing) return { roomId: roomId, seed: Number(existing.seed) || 123456789 };
       var seed = 0;
       for (var i = 0; i < roomId.length; i++) seed = (Math.imul(seed, 31) + roomId.charCodeAt(i)) | 0;
       seed = Math.abs(seed) || 123456789;
-      const { error } = await supabase.from('multiplayer_rooms').upsert({ id: roomId, address: String(address || 'default-room'), seed: seed, created_at_ms: Date.now() }, { onConflict: 'id' });
-      if (error) throw error;
       return { roomId: roomId, seed: seed };
     };
 
@@ -1041,7 +1039,7 @@
         console.error('マルチプレイ部屋の準備に失敗:', e);
       }
       if (!room) {
-        alert('マルチプレイ部屋に接続できませんでした。Firebase / Firestore の設定を確認してください。');
+        alert('マルチプレイ部屋に接続できませんでした。');
         return;
       }
       try {
