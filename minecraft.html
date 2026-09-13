@@ -134,8 +134,15 @@
 
     window.saveOwnerName = async function(uid, ownerName) {
       if (!uid) return;
+      // users コレクション自体をプレイヤー一覧の基準にする。
+      // パスワードなどの認証情報は保存しない。
+      await setDoc(doc(db, 'users', uid), {
+        uid: uid,
+        displayName: ownerName || '',
+        lastSeenAt: serverTimestamp()
+      }, { merge: true });
       const docRef = doc(db, 'users', uid, 'profile');
-      await setDoc(docRef, { displayName: ownerName }, { merge: true });
+      await setDoc(docRef, { displayName: ownerName || '' }, { merge: true });
     };
 
     // Multiplayer room helper. The server address is the room identity.
@@ -303,11 +310,16 @@
     };
     window.listProfiles = async function() {
       try {
+        // Firebase の users コレクションに実際に保存されている人を一覧化する。
         const snap = await getDocs(collection(db, 'users'));
         const arr = [];
         snap.forEach((d) => {
           const data = d.data() || {};
-          arr.push({ id: d.id, display_name: data.displayName || data.display_name || '' });
+          arr.push({
+            id: d.id,
+            uid: data.uid || d.id,
+            display_name: data.displayName || data.display_name || ''
+          });
         });
         return arr;
       } catch (e) {
@@ -782,6 +794,15 @@
 
   <!-- メンテナンス画面（全員に表示。koroponだけ回避できる） -->
   <div id="maintenance-overlay">
+    <div id="maintenance-admin-login" style="position:fixed; top:12px; right:12px; z-index:3100; display:flex; align-items:center; gap:6px;">
+      <button class="btn-minecraft" id="maintenance-login-open" style="margin:0; padding:6px 10px; font-size:0.72rem;">ログイン</button>
+      <div id="maintenance-login-box" style="display:none; background:rgba(0,0,0,0.92); border:2px solid #777; padding:10px; width:230px; box-sizing:border-box;">
+        <div style="color:#fff; font-size:0.75rem; margin-bottom:6px;">管理者ログイン</div>
+        <input type="password" id="maintenance-login-password" class="form-input" placeholder="パスワードを入力" autocomplete="current-password" style="width:100%; box-sizing:border-box; margin-bottom:6px;">
+        <button class="btn-minecraft" id="maintenance-login-submit" style="width:100%; margin:0; padding:6px; font-size:0.7rem;">ログイン</button>
+        <div id="maintenance-login-message" style="font-size:0.65rem; color:#ff8888; margin-top:5px; min-height:1em;"></div>
+      </div>
+    </div>
     <div class="maint-box">
       <div class="maint-icon">!</div>
       <div style="font-size:1.2rem;">メンテナンス中</div>
@@ -968,8 +989,9 @@
     window.addEventListener('firebase-ready', (e) => {
       clearTimeout(connectionTimeout);
       firebaseUid = e.detail && e.detail.uid ? e.detail.uid : window._firebase && window._firebase.uid;
-      if (firebaseUid && savedDisplayName && window.saveOwnerName) {
-        window.saveOwnerName(firebaseUid, savedDisplayName).catch(()=>{});
+      if (firebaseUid && window.saveOwnerName) {
+        // ログインした人は displayName が未設定でも users に記録する。
+        window.saveOwnerName(firebaseUid, savedDisplayName || '').catch(()=>{});
       }
       startWatchingWorlds();
       startWatchingMultiplayerCount();
@@ -1822,6 +1844,51 @@
     window.addEventListener('DOMContentLoaded', () => {
       updateTexts();
       renderWorlds();
+
+      const maintenanceLoginOpen = document.getElementById('maintenance-login-open');
+      const maintenanceLoginBox = document.getElementById('maintenance-login-box');
+      const maintenanceLoginPassword = document.getElementById('maintenance-login-password');
+      const maintenanceLoginSubmit = document.getElementById('maintenance-login-submit');
+      const maintenanceLoginMessage = document.getElementById('maintenance-login-message');
+
+      maintenanceLoginOpen.addEventListener('click', () => {
+        if (isAdminUser()) return;
+        maintenanceLoginBox.style.display = 'block';
+        maintenanceLoginPassword.focus();
+      });
+
+      async function loginFromMaintenance() {
+        const pw = maintenanceLoginPassword.value.trim();
+        if (!pw) {
+          maintenanceLoginMessage.textContent = 'パスワードを入力してください';
+          return;
+        }
+        maintenanceLoginMessage.textContent = 'ログイン中...';
+        maintenanceLoginMessage.style.color = '#fff';
+        try {
+          // 通常ログインと同じ Firebase アカウントで認証する。
+          await window.doEmailLogin(passwordToEmail(pw), pw);
+          localStorage.setItem('mc_pw_hint', pw);
+          _currentPassword = pw;
+          maintenanceLoginPassword.value = '';
+          maintenanceLoginMessage.textContent = '';
+          maintenanceLoginBox.style.display = 'none';
+          if (pw === 'koropon') {
+            // Auth 状態の反映後に管理者としてメンテナンスを解除する。
+            setTimeout(() => {
+              if (isAdminUser()) hideMaintenanceOverlay();
+            }, 100);
+          }
+        } catch (e) {
+          maintenanceLoginMessage.textContent = 'パスワードが違います';
+          maintenanceLoginMessage.style.color = '#ff8888';
+        }
+      }
+
+      maintenanceLoginSubmit.addEventListener('click', loginFromMaintenance);
+      maintenanceLoginPassword.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') loginFromMaintenance();
+      });
 
       document.getElementById('overlay-btn-login').addEventListener('click', async () => {
         const pw = document.getElementById('overlay-password').value.trim();
