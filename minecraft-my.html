@@ -40,6 +40,12 @@ Controls:
 </style>
 
 <body>
+  <div id="admin-control-overlay" style="display:none;position:fixed;inset:0;z-index:30000;background:rgba(0,0,0,.88);color:#fff;align-items:center;justify-content:center;text-align:center;font-family:Arial,sans-serif;">
+    <div style="max-width:620px;padding:32px;">
+      <div id="admin-control-title" style="font-size:32px;font-weight:bold;margin-bottom:16px;">マルチプレイ停止中</div>
+      <div id="admin-control-message" style="font-size:18px;line-height:1.7;">管理者により現在マルチプレイを停止しています。</div>
+    </div>
+  </div>
   <div id="mobileControls" style="display:none;position:fixed;inset:0;z-index:9999;pointer-events:none;user-select:none;touch-action:none;">
     <div style="position:absolute;left:18px;bottom:18px;width:190px;height:190px;pointer-events:none;">
       <button data-key="w" style="position:absolute;left:65px;top:0;width:60px;height:60px;font-size:24px;pointer-events:auto;">▲</button>
@@ -6865,7 +6871,7 @@ function clickInvFurnace() {
   </script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
   const firebaseConfig = {
@@ -6928,6 +6934,71 @@ function clickInvFurnace() {
     let leavingMultiplayer = false;
     let unreadCount = 0;
     let firstChatLoad = true;
+
+    // 管理者設定をゲーム側でも監視する。メンテナンス/Firebase一時停止は即時反映。
+    let adminControlBlocked = false;
+    let adminControlReason = '';
+    let adminSettingsUnsub = null;
+    let nameBanUnsub = null;
+    const adminControlOverlay = document.getElementById('admin-control-overlay');
+    const adminControlTitle = document.getElementById('admin-control-title');
+    const adminControlMessage = document.getElementById('admin-control-message');
+
+    function setAdminControlBlocked(blocked, reason) {
+      adminControlBlocked = !!blocked;
+      adminControlReason = reason || '';
+      if (adminControlBlocked) {
+        try { removeMyPresence(); } catch (e) {}
+        adminControlTitle.textContent = adminControlReason === 'maintenance' ? 'メンテナンス中' : 'マルチプレイ停止中';
+        adminControlMessage.textContent = adminControlReason === 'maintenance'
+          ? '管理者がメンテナンスを開始しました。現在このゲームを利用できません。'
+          : '管理者がFirebaseを一時停止しました。マルチプレイは現在利用できません。';
+        adminControlOverlay.style.display = 'flex';
+        mpChatPanel.style.display = 'none';
+        mpChatButton.style.display = 'none';
+        if (typeof window.__mcMPLeave === 'function') window.__mcMPLeave();
+      } else {
+        adminControlOverlay.style.display = 'none';
+      }
+    }
+
+    function startAdminSettingsWatcher() {
+      if (adminSettingsUnsub) return;
+      adminSettingsUnsub = onSnapshot(doc(db, 'system', 'settings'), (snap) => {
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        if (data.maintenance) setAdminControlBlocked(true, 'maintenance');
+        else if (data.firebasePaused) setAdminControlBlocked(true, 'firebase');
+        else setAdminControlBlocked(false, '');
+      }, (err) => {
+        console.warn('管理者設定監視失敗:', err);
+      });
+    }
+
+    function startNameBanWatcher() {
+      const nameKey = encodeURIComponent(String(playerName || '').trim().toLowerCase()).slice(0, 500);
+      if (!nameKey || nameBanUnsub) return;
+      nameBanUnsub = onSnapshot(doc(db, 'bansByName', nameKey), (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data() || {};
+        if (!data.active) return;
+        const until = Number(data.until) || 0;
+        if (Date.now() >= until) return;
+        adminControlTitle.textContent = '追放されました';
+        adminControlMessage.textContent = '管理者によりマルチプレイから追放されています。残り約 ' + Math.max(1, Math.ceil((until - Date.now()) / 1000)) + ' 秒です。';
+        adminControlBlocked = true;
+        adminControlReason = 'kick';
+        adminControlOverlay.style.display = 'flex';
+        if (typeof window.__mcMPLeave === 'function') window.__mcMPLeave();
+      }, (err) => {
+        console.warn('名前による追放監視失敗:', err);
+      });
+    }
+
+    function stopAdminWatchers() {
+      if (adminSettingsUnsub) { try { adminSettingsUnsub(); } catch (e) {} adminSettingsUnsub = null; }
+      if (nameBanUnsub) { try { nameBanUnsub(); } catch (e) {} nameBanUnsub = null; }
+    }
+
     function updateChatButton() {
       mpChatButton.textContent = unreadCount > 0 ? '💬 (' + unreadCount + ')' : '💬';
     }
@@ -7026,7 +7097,7 @@ function clickInvFurnace() {
     mpChatForm.addEventListener('submit', async e => {
       e.preventDefault();
       const value = mpChatInput.value.trim().slice(0, 120);
-      if (!value || leavingMultiplayer) return;
+      if (!value || leavingMultiplayer || adminControlBlocked) return;
 
       const messageId = 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       mpChatInput.value = '';
@@ -7069,6 +7140,11 @@ function clickInvFurnace() {
     });
 
     window.addEventListener('keydown', e => {
+      if (adminControlBlocked) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (!bridgeWait() || leavingMultiplayer) return;
       if (e.key.toLowerCase() === 't' && document.activeElement !== mpChatInput) {
         e.preventDefault();
@@ -7086,8 +7162,17 @@ function clickInvFurnace() {
     window.addEventListener('pagehide', () => { removeMyPresence(); });
     window.addEventListener('beforeunload', () => { removeMyPresence(); });
 
+    startAdminSettingsWatcher();
+    startNameBanWatcher();
+
     async function startMultiplayer() {
+      if (adminControlBlocked) return;
       try {
+        // 開始直前にも管理者設定を確認し、すでに停止中なら接続しない。
+        const settingsSnap = await getDoc(doc(db, 'system', 'settings'));
+        const settings = settingsSnap.exists() ? (settingsSnap.data() || {}) : {};
+        if (settings.maintenance) { setAdminControlBlocked(true, 'maintenance'); return; }
+        if (settings.firebasePaused) { setAdminControlBlocked(true, 'firebase'); return; }
         try {
           await signInAnonymously(auth);
         } catch (e) {
@@ -7491,7 +7576,7 @@ function clickInvFurnace() {
     }
 
     function uploadLatestPlayerState() {
-      if (!ready || !latestPlayerState) return;
+      if (adminControlBlocked || !ready || !latestPlayerState) return;
       const now = Date.now();
       lastPlayerWrite = now;
       setDoc(doc(playersRef, myId), {
@@ -7515,7 +7600,7 @@ function clickInvFurnace() {
     }, 100);
 
     setInterval(() => {
-      if (!ready || !bridgeWait()) return;
+      if (adminControlBlocked || !ready || !bridgeWait()) return;
       collectLatestPlayerState();
       uploadLatestPlayerState();
       playerSyncStarted = true;
