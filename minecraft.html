@@ -198,6 +198,13 @@
       }, { merge: true });
     };
 
+    window.setFirebasePause = async function(enabled) {
+      await setDoc(doc(db, 'system', 'settings'), {
+        firebasePaused: !!enabled,
+        firebasePausedUpdatedAt: serverTimestamp()
+      }, { merge: true });
+    };
+
     window.watchSystemSettings = function(onChange) {
       return onSnapshot(doc(db, 'system', 'settings'), (snap) => {
         onChange(snap.exists() ? (snap.data() || {}) : {});
@@ -245,13 +252,20 @@
 
     window.kickPlayerByUid = async function(targetUid, targetName, reason) {
       if (!targetUid) return;
-      await setDoc(doc(db, 'bans', targetUid), {
+      const until = Date.now() + 5 * 60 * 1000;
+      const data = {
         active: true,
         name: targetName || '',
         reason: reason || '',
-        until: Date.now() + 5 * 60 * 1000,
+        until: until,
         bannedAt: Date.now()
-      });
+      };
+      await setDoc(doc(db, 'bans', targetUid), data);
+      // マルチプレイ側は匿名認証なのでUIDが別になるため、名前でも追放状態を共有する。
+      if (targetName) {
+        const nameKey = encodeURIComponent(String(targetName).trim().toLowerCase()).slice(0, 500);
+        if (nameKey) await setDoc(doc(db, 'bansByName', nameKey), { ...data, nameKey });
+      }
     };
 
     window.listBans = async function() {
@@ -276,7 +290,16 @@
     };
 
     window.unbanPlayer = async function(uid) {
-      try { await deleteDoc(doc(db, 'bans', uid)); } catch (e) {}
+      try {
+        const banRef = doc(db, 'bans', uid);
+        const snap = await getDoc(banRef);
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        await deleteDoc(banRef);
+        if (data.name) {
+          const nameKey = encodeURIComponent(String(data.name).trim().toLowerCase()).slice(0, 500);
+          if (nameKey) { try { await deleteDoc(doc(db, 'bansByName', nameKey)); } catch (e) {} }
+        }
+      } catch (e) {}
     };
     window.listProfiles = async function() {
       try {
@@ -627,6 +650,11 @@
       <div class="setting-item-box" style="width:60%;">
         <label id="maintenance-label" style="color:#ddd; font-size:0.9rem;">メンテナンス: オフ</label>
         <button class="btn-minecraft" id="btn-toggle-maintenance" style="margin-bottom:0;">メンテナンス: オフ</button>
+      </div>
+
+      <div class="setting-item-box" style="width:60%;">
+        <label id="firebase-pause-label" style="color:#ddd; font-size:0.9rem;">Firebase一時停止: オフ</label>
+        <button class="btn-minecraft" id="btn-toggle-firebase-pause" style="margin-bottom:0; background:#8b3a3a;">Firebase一時停止: オフ</button>
       </div>
 
       <div class="admin-section-title">追放中のプレイヤー（5分後に自動解除）</div>
@@ -1517,10 +1545,13 @@
     const btnGoAdmin = document.getElementById('btn-go-admin');
     const btnToggleMaintenance = document.getElementById('btn-toggle-maintenance');
     const maintenanceLabel = document.getElementById('maintenance-label');
+    const btnToggleFirebasePause = document.getElementById('btn-toggle-firebase-pause');
+    const firebasePauseLabel = document.getElementById('firebase-pause-label');
     const adminMessage = document.getElementById('admin-message');
     const maintenanceOverlay = document.getElementById('maintenance-overlay');
     const kickedOverlay = document.getElementById('kicked-overlay');
     let maintenanceState = false;
+    let firebasePauseState = false;
     let maintenanceUnsub = null;
     let banUnsub = null;
     let kickTimerInterval = null;
@@ -1554,7 +1585,9 @@
       if (maintenanceUnsub || typeof window.watchSystemSettings !== 'function') return;
       maintenanceUnsub = window.watchSystemSettings((data) => {
         maintenanceState = !!data.maintenance;
+        firebasePauseState = !!data.firebasePaused;
         updateMaintenanceButton();
+        updateFirebasePauseButton();
         if (maintenanceState) showMaintenanceOverlay(); else hideMaintenanceOverlay();
       });
     }
@@ -1595,12 +1628,28 @@
       btnToggleMaintenance.style.background = maintenanceState ? '#4a7a4a' : '#8b3a3a';
     }
 
+    function updateFirebasePauseButton() {
+      const label = firebasePauseState ? 'Firebase一時停止: オン' : 'Firebase一時停止: オフ';
+      btnToggleFirebasePause.textContent = label;
+      firebasePauseLabel.textContent = label;
+      btnToggleFirebasePause.style.background = firebasePauseState ? '#4a7a4a' : '#8b3a3a';
+    }
+
     btnToggleMaintenance.addEventListener('click', async () => {
       try {
         await window.setSystemMaintenance(!maintenanceState);
         setAdminMessage(maintenanceState ? 'メンテナンスをオフにしました' : 'メンテナンスをオンにしました');
       } catch (e) {
         setAdminMessage('メンテナンスの切り替えに失敗しました', true);
+      }
+    });
+
+    btnToggleFirebasePause.addEventListener('click', async () => {
+      try {
+        await window.setFirebasePause(!firebasePauseState);
+        setAdminMessage(firebasePauseState ? 'Firebase一時停止をオフにしました' : 'Firebase一時停止をオンにしました');
+      } catch (e) {
+        setAdminMessage('Firebase一時停止の切り替えに失敗しました', true);
       }
     });
 
@@ -1724,6 +1773,7 @@
     btnGoAdmin.addEventListener('click', () => {
       if (!isAdminUser()) return;
       updateMaintenanceButton();
+      updateFirebasePauseButton();
       setAdminMessage('');
       renderAdminLists();
       changeScreen(adminMenu);
